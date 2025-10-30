@@ -1,1 +1,13 @@
 __pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.vscode/
+.idea/
+.DS_Store
+.env
+.venv/
+venv/
+env/
+venv.bak/
+env.bak/
