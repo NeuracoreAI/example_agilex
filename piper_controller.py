@@ -1,23 +1,14 @@
 #!/usr/bin/env python3
-"""Core Robot Controller - Independent of UI.
-
-This module provides the core robot control functionality without any
-UI dependencies. It can be used with GUI, VR, or any other control interface.
-
-Dependencies:
-    - piper_sdk: For robot CAN communication
-    - numpy: For numerical operations
-"""
+"""Core Piper Robot Controller."""
 
 import threading
 import time
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from piper_sdk import C_PiperInterface_V2  # type: ignore[attr-defined]
 
 
-# TODO: type def method attributes and return types
 class PiperController:
     """Core PiPER robot controller that manages robot state and communication.
 
@@ -68,12 +59,7 @@ class PiperController:
 
         # HOME positions in end effector space and joint space
 
-        # TODO: HARD CODED HOME POSITION FOR NOW
-        # self.HOME_POSE = [-2.045, -193.554, 419.090, -92.088, -65.495, -178.980]
-        # self.HOME_POSE = [79.539, -0.313, 377.785, -82.925, -67.163, -96.792]
-        # self.HOME_POSE = [54.666, -0.4413, 236.872, -123.678, -71.112, -60.531]
-        # self.HOME_POSE = [0.318, -46.912, 382.471, -82.690, -68.163, 172.780]
-        # self.HOME_POSE = [56.1, 0.0, 213.3, 0.0, 85.0, 0.0]
+        # NOTE: this is set to a preferred home pose for the robot
         self.HOME_POSE = [-3.123, -125.085, 382.251, -78.132, 84.303, -169.496]
         self.HOME_JOINT_ANGLES = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.HOME_GRIPPER_OPEN_VALUE = 53.800
@@ -208,7 +194,7 @@ class PiperController:
             if self.debug_mode:
                 print(f"Control mode changed: {old_mode.value} -> {mode.value}")
 
-    def get_target_pose(self) -> List[float]:
+    def get_target_pose(self) -> list[float]:
         """Get the current target position.
 
         Returns:
@@ -219,8 +205,8 @@ class PiperController:
 
     def set_target_pose(
         self,
-        position: Union[List[float], Tuple[float, float, float]],
-        orientation: Union[List[float], Tuple[float, float, float]],
+        position: list[float],
+        orientation: list[float],
     ) -> None:
         """Set target target pose.
 
@@ -242,8 +228,8 @@ class PiperController:
 
     def update_target_pose(
         self,
-        linear_delta: Union[List[float], Tuple[float, float, float]],
-        angular_delta: Union[List[float], Tuple[float, float, float]],
+        linear_delta: list[float],
+        angular_delta: list[float],
     ) -> None:
         """Update target position with relative deltas.
 
@@ -315,7 +301,7 @@ class PiperController:
             if self.debug_mode:
                 print(f"Gripper updated: {self._gripper_open_value}")
 
-    def get_target_joint_angles(self) -> List[float]:
+    def get_target_joint_angles(self) -> list[float]:
         """Get the current target joint angles.
 
         Returns:
@@ -324,7 +310,7 @@ class PiperController:
         with self.position_lock:
             return self._target_joint_angles.copy()
 
-    def set_target_joint_angles(self, joint_angles: List[float]) -> None:
+    def set_target_joint_angles(self, joint_angles: list[float]) -> None:
         """Set target joint angles.
 
         Args:
@@ -343,7 +329,7 @@ class PiperController:
             if self.debug_mode:
                 print(f"Target joint angles set: {self._target_joint_angles}")
 
-    def update_target_joint_angles(self, joint_deltas: List[float]) -> None:
+    def update_target_joint_angles(self, joint_deltas: list[float]) -> None:
         """Update target joint angles with relative deltas.
 
         Args:
@@ -433,7 +419,7 @@ class PiperController:
                 print(f"Robot control loop error: {e}")
                 time.sleep(0.01)
 
-    def _send_end_effector_command(self, command: List[float]) -> None:
+    def _send_end_effector_command(self, command: list[float]) -> None:
         """Send end-effector pose command to the robot.
 
         Args:
@@ -455,7 +441,7 @@ class PiperController:
         except Exception as e:
             print(f"Failed to send end-effector command: {e}")
 
-    def _send_joint_command(self, joint_angles: List[float]) -> None:
+    def _send_joint_command(self, joint_angles: list[float]) -> None:
         """Send joint angles command to the robot.
 
         Args:
@@ -484,7 +470,6 @@ class PiperController:
             gripper_open_value: Gripper open value in degrees
         """
         try:
-            # TODO: may end up needing to add motionctrl function before this
             # Convert from degrees to piper SDK units (0.001degrees)
             gripper_value = round(gripper_open_value * 1000)
             self.piper.GripperCtrl(gripper_value, 1000, 0x01, 0)
@@ -591,7 +576,7 @@ class PiperController:
             print(f"✗ Resume robot error: {e}")
             return False
 
-    def get_current_end_pose(self) -> Optional[List[float]]:
+    def get_current_end_pose(self) -> list[float] | None:
         """Get the current measured end effector pose from the robot, if available.
 
         Returns:
@@ -614,7 +599,7 @@ class PiperController:
                     print(f"Failed to get current end pose: {e}")
         return None
 
-    def get_current_joint_angles(self) -> Optional[List[float]]:
+    def get_current_joint_angles(self) -> list[float] | None:
         """Get the current measured joint angles from the robot, if available.
 
         Returns:
@@ -637,7 +622,7 @@ class PiperController:
                     print(f"Failed to get current joint angles: {e}")
         return None
 
-    def get_current_gripper_open_value(self) -> Optional[float]:
+    def get_current_gripper_open_value(self) -> float | None:
         """Get the current measured gripper open value from the robot, if available.
 
         Returns:
@@ -653,7 +638,7 @@ class PiperController:
                     print(f"Failed to get current gripper open value: {e}")
         return None
 
-    def get_robot_status(self) -> Dict[str, Any]:
+    def get_robot_status(self) -> dict[str, Any]:
         """Get comprehensive robot status information.
 
         Returns:

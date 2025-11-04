@@ -5,7 +5,7 @@ kinematics based on Pinocchio) with any URDF robot model.
 """
 
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pink
@@ -36,24 +36,24 @@ class PinkIKSolver:
         damping_cost: float = 0.0,
         solver_damping_value: float = 1e-12,
         integration_time_step: float = 0.001,
-        initial_configuration: Optional[np.ndarray] = None,
-        posture_cost_vector: Optional[np.ndarray] = None,
+        initial_configuration: np.ndarray | None = None,
+        posture_cost_vector: np.ndarray | None = None,
     ) -> None:
         """Initialize the Pink IK solver.
 
         Args:
-            urdf_path: str - Path to the URDF file
-            end_effector_frame: str - Name of the end effector frame
-            solver_name: str - Name of the QP solver to use
-            position_cost: float - Cost weight for position tracking
-            orientation_cost: float - Cost weight for orientation tracking
-            frame_task_gain: float - Gain for the frame task
-            lm_damping: float - Levenberg-Marquardt damping factor
-            damping_cost: float - Cost weight for velocity damping
-            solver_damping_value: float - Value for solver damping - Tikhonov regularization parameter
-            integration_time_step: float - Time step for integration
-            initial_configuration: np.ndarray - Initial joint configuration (if None, uses neutral)
-            posture_cost_vector: np.ndarray - Cost weights for posture task per joint (if None, uses zeros)
+            urdf_path: Path to the URDF file
+            end_effector_frame: Name of the end effector frame
+            solver_name: Name of the QP solver to use
+            position_cost: Cost weight for position tracking
+            orientation_cost: Cost weight for orientation tracking
+            frame_task_gain: Gain for the frame task
+            lm_damping: Marquardt damping factor
+            damping_cost: Cost weight for velocity damping
+            solver_damping_value: Value for solver  Tikhonov regularization parameter
+            integration_time_step: Time step for integration
+            initial_configuration:Initial joint configuration (if None, uses neutral)
+            posture_cost_vector: Cost weights for posture task per joint (if None, uses zeros)
         """
         self.urdf_path: str = urdf_path
         self.end_effector_frame: str = end_effector_frame
@@ -68,37 +68,25 @@ class PinkIKSolver:
         self.solver_damping_value: float = solver_damping_value
         self.integration_time_step: float = integration_time_step
 
-        # Robot model and data
-        self.urdf_model: Optional[pin.Model] = None
-        self.urdf_model_data: Optional[pin.ModelData] = None
-        self.configuration: Optional[pink.Configuration] = None
-
-        # Tasks
-        self.ee_task: Optional[FrameTask] = None
-        self.damping_task: Optional[DampingTask] = None
-        self.posture_task: Optional[VectorisedPostureTask] = None
-
         # Statistics
         self.solve_times: list[float] = []
         self.last_solve_time: float = 0.0
 
-        # Initial configuration
-        self.initial_configuration: Optional[np.ndarray] = initial_configuration
-        self.posture_cost_vector: Optional[np.ndarray] = posture_cost_vector
-
         # Initialize the robot
         self._build_robot_model()
-        self._setup_tasks()
+
+        # Validate end effector frame
+        self._validate_end_effector_frame()
+
+        # Set up tasks
+        self._setup_tasks(initial_configuration, posture_cost_vector)
 
     def _build_robot_model(self) -> None:
         """Build the robot model from URDF."""
         print(f"📁 Loading URDF: {self.urdf_path}")
-        self.urdf_model = pin.buildModelFromUrdf(self.urdf_path)
-        self.urdf_model_data = self.urdf_model.createData()
+        self.urdf_model: pin.Model = pin.buildModelFromUrdf(self.urdf_path)
+        self.urdf_model_data: pin.ModelData = self.urdf_model.createData()
         print("✅ Robot loaded successfully!")
-
-        # Validate end effector frame
-        self._validate_end_effector_frame()
 
     def _validate_end_effector_frame(self) -> None:
         """Validate that the end effector frame exists.
@@ -119,8 +107,16 @@ class PinkIKSolver:
                 f"Frame {self.end_effector_frame} not found in URDF. Available frames: {available_frames}"
             )
 
-    def _setup_tasks(self) -> None:
+    def _setup_tasks(
+        self,
+        initial_configuration: np.ndarray | None = None,
+        posture_cost_vector: np.ndarray | None = None,
+    ) -> None:
         """Set up Pink tasks and configuration.
+
+        Args:
+            initial_configuration: Initial joint configuration (if None, uses neutral)
+            posture_cost_vector: Cost weights for posture task per joint (if None, uses zeros)
 
         Raises:
             ValueError: If the initial configuration is not valid (initial
@@ -128,6 +124,11 @@ class PinkIKSolver:
                 model).
         """
         assert self.urdf_model is not None, "Robot model must be initialized"
+
+        # Initial configuration
+        self.initial_configuration = initial_configuration
+        self.posture_cost_vector = posture_cost_vector
+
         if (
             self.initial_configuration is not None
             and len(self.initial_configuration) != self.urdf_model.nq
@@ -180,26 +181,26 @@ class PinkIKSolver:
 
     def update_task_parameters(
         self,
-        position_cost: Optional[float] = None,
-        orientation_cost: Optional[float] = None,
-        frame_task_gain: Optional[float] = None,
-        lm_damping: Optional[float] = None,
-        damping_cost: Optional[float] = None,
-        solver_damping_value: Optional[float] = None,
-        integration_time_step: Optional[float] = None,
-        posture_cost_vector: Optional[np.ndarray] = None,
+        position_cost: float | None = None,
+        orientation_cost: float | None = None,
+        frame_task_gain: float | None = None,
+        lm_damping: float | None = None,
+        damping_cost: float | None = None,
+        solver_damping_value: float | None = None,
+        integration_time_step: float | None = None,
+        posture_cost_vector: np.ndarray | None = None,
     ) -> None:
         """Update task parameters dynamically.
 
         Args:
-            position_cost: float - Cost weight for position tracking
-            orientation_cost: float - Cost weight for orientation tracking
-            frame_task_gain: float - Gain for the frame task
-            lm_damping: float - Levenberg-Marquardt damping factor
-            damping_cost: float - Cost weight for velocity damping
-            solver_damping_value: float - Value for solver damping - Tikhonov regularization parameter
-            integration_time_step: float - Time step for integration
-            posture_cost_vector: np.ndarray - Cost weights for posture task per joint
+            position_cost: Cost weight for position tracking
+            orientation_cost: Cost weight for orientation tracking
+            frame_task_gain: Gain for the frame task
+            lm_damping: Marquardt damping factor
+            damping_cost: Cost weight for velocity damping
+            solver_damping_value: Value for solver damping - Tikhonov regularization parameter
+            integration_time_step: Time step for integration
+            posture_cost_vector: Cost weights for posture task per joint
         """
         assert self.ee_task is not None, "End effector task must be initialized"
         assert self.damping_task is not None, "Damping task must be initialized"
@@ -243,8 +244,8 @@ class PinkIKSolver:
         """Set target pose from position and orientation.
 
         Args:
-            position: np.ndarray - 3D position vector
-            orientation: np.ndarray - 3x3 rotation matrix or 4-element
+            position: 3D position vector
+            orientation: 3x3 rotation matrix or 4-element
                 quaternion (wxyz)
 
         Raises:
@@ -267,11 +268,11 @@ class PinkIKSolver:
         assert self.ee_task is not None, "End effector task must be initialized"
         self.ee_task.set_target(target_transform)
 
-    def solve_ik(self, dt: Optional[float] = None) -> bool:
+    def solve_ik(self, dt: float | None = None) -> bool:
         """Solve inverse kinematics for current target.
 
         Args:
-            dt: float - Integration time step (uses instance default if None).
+            dt: Integration time step (uses instance default if None).
 
         Returns:
             True if successful, False otherwise.
@@ -333,7 +334,7 @@ class PinkIKSolver:
         assert self.configuration is not None, "Configuration must be initialized"
         return self.configuration.q.copy()
 
-    def get_current_end_effector_pose(self) -> Tuple[np.ndarray, np.ndarray]:
+    def get_current_end_effector_pose(self) -> tuple[np.ndarray, np.ndarray]:
         """Get current end effector pose.
 
         Returns:
@@ -345,7 +346,7 @@ class PinkIKSolver:
         )
         return transform.translation.copy(), transform.rotation.copy()
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, float | int]:
         """Get solver timing statistics (in milliseconds)."""
         if not self.solve_times:
             return {
@@ -365,7 +366,7 @@ class PinkIKSolver:
         """Set the robot to a specific joint configuration.
 
         Args:
-            joint_config: np.ndarray - Array of joint angles to set
+            joint_config: Array of joint angles to set
 
         Raises:
             ValueError: If the joint configuration is not valid (joint
@@ -393,7 +394,7 @@ class PinkIKSolver:
         assert self.urdf_model is not None, "Robot model must be initialized"
         return [self.urdf_model.frames[i].name for i in range(self.urdf_model.nframes)]
 
-    def get_robot_info(self) -> Dict[str, Any]:
+    def get_robot_info(self) -> dict[str, Any]:
         """Get robot information."""
         assert self.urdf_model is not None, "Robot model must be initialized"
         return {

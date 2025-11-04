@@ -6,7 +6,6 @@
 
 """Posture task implementation."""
 
-from typing import Optional, Sequence, Union
 
 import numpy as np
 import pinocchio as pin
@@ -33,19 +32,19 @@ class VectorisedPostureTask(Task):
     toward a preferred orientation.
     """
 
-    target_q: Optional[np.ndarray]
+    target_q: np.ndarray | None
 
     def __init__(
         self,
-        cost: Optional[Union[float, Sequence[float]]] = None,
+        cost: float | list[float] | None = None,
         lm_damping: float = 0.0,
         gain: float = 1.0,
     ) -> None:
         r"""Create task.
 
         Args:
-            cost: value used to cast joint angle differences to a homogeneous
-                cost, in :math:`[\mathrm{cost}] / [\mathrm{rad}]`.
+            cost: Vector of cost values, can be a single value to be applied
+                to all joints :math:`[\mathrm{cost}] / [\mathrm{rad}]`.
             lm_damping: Unitless scale of the Levenberg-Marquardt (only when
                 the error is large) regularization term, which helps when
                 targets are unfeasible. Increase this value if the task is too
