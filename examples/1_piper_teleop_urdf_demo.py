@@ -351,32 +351,7 @@ def main() -> None:
                 and controller_initial_transform is not None
                 and robot_initial_transform is not None
             ):
-                # # OPTION1: Calculate delta transform in controller space in 4x4 homogeneous transformation matrix
-                # # T_delta = T_initial^-1 * T_current
-                # controller_initial_inv = np.linalg.inv(controller_initial_transform)
-                # T_delta = controller_initial_inv @ controller_transform
-                # # Apply delta to robot initial pose
-                # # T_robot_target = T_robot_initial * T_delta
-                # T_robot_target = robot_initial_transform @ T_delta
-
-                # # OPTION2: Calculate delta transform in controller space as translation and rotation euler angles
-                # delta_position = (
-                #     controller_transform[:3, 3] - controller_initial_transform[:3, 3]
-                # )
-                # delta_orientation = Rotation.from_matrix(
-                #     controller_transform[:3, :3]
-                # ).as_euler("xyz") - Rotation.from_matrix(
-                #     controller_initial_transform[:3, :3]
-                # ).as_euler(
-                #     "xyz"
-                # )
-                # T_robot_target = np.eye(4)
-                # T_robot_target[:3, 3] = robot_initial_transform[:3, 3] + delta_position
-                # T_robot_target[:3, :3] = Rotation.from_euler(
-                #     "xyz", delta_orientation
-                # ).as_matrix()
-
-                # OPTION3: Calculate delta transform in controller space as translation and rotation matrix
+                # Calculate delta transform in controller space as translation and rotation matrix
                 delta_position = (
                     controller_transform[:3, 3] - controller_initial_transform[:3, 3]
                 )

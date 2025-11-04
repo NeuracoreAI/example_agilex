@@ -5,7 +5,6 @@ import sys
 import time
 from collections import deque
 from pathlib import Path
-from typing import Deque
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -36,8 +35,8 @@ class MovementMonitor:
         self.rotation_threshold = rotation_threshold
 
         # History buffers
-        self.position_history: Deque[np.ndarray] = deque(maxlen=history_size)
-        self.euler_history: Deque[np.ndarray] = deque(maxlen=history_size)
+        self.position_history: deque[np.ndarray] = deque(maxlen=history_size)
+        self.euler_history: deque[np.ndarray] = deque(maxlen=history_size)
 
         # Current values
         self.current_position = None

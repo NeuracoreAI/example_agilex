@@ -24,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Add meta_quest_reader to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "meta_quest_reader"))
 
-from typing import Optional, Tuple
 
 import viser
 import yourdfpy
@@ -80,8 +79,8 @@ class TeleopState:
         self.smoothing_alpha: float = (
             1.0  # EMA smoothing factor (0.0-1.0, higher = less smoothing)
         )
-        self.controller_transform_raw: Optional[np.ndarray] = None
-        self.controller_transform: Optional[np.ndarray] = None  # Smoothed transform
+        self.controller_transform_raw: np.ndarray | None = None
+        self.controller_transform: np.ndarray | None = None  # Smoothed transform
 
         # Controller data (updated by data collection thread)
         self.grip_value: float = 0.0
@@ -91,8 +90,8 @@ class TeleopState:
         self.teleop_active: bool = False
         # Initial controller and robot transforms when teleop starts (used to calculate delta transform)
         # These are set on rising edge of grip button and reset on falling edge of grip button.
-        self.controller_initial_transform: Optional[np.ndarray] = None
-        self.robot_initial_transform: Optional[np.ndarray] = None
+        self.controller_initial_transform: np.ndarray | None = None
+        self.robot_initial_transform: np.ndarray | None = None
 
         # Robot activity state (managed by main thread and data collection thread)
         self.robot_activity_state: RobotActivityState = RobotActivityState.DISABLED
@@ -103,12 +102,12 @@ class TeleopState:
         self.ik_success: bool = True
 
         # Target/goal transform (for visualization)
-        self.target_transform: Optional[np.ndarray] = None
+        self.target_transform: np.ndarray | None = None
 
         # Shutdown flag
         self._shutdown_requested: bool = False
 
-    def get_controller_data(self) -> Tuple[Optional[np.ndarray], float, float]:
+    def get_controller_data(self) -> tuple[np.ndarray | None, float, float]:
         """Get current controller data (thread-safe).
 
         Returns:
@@ -173,15 +172,15 @@ class TeleopState:
     def set_teleop_state(
         self,
         active: bool,
-        controller_initial: Optional[np.ndarray],
-        robot_initial: Optional[np.ndarray],
+        controller_initial: np.ndarray | None,
+        robot_initial: np.ndarray | None,
     ) -> None:
         """Set teleoperation state (thread-safe).
 
         Args:
             active: bool - whether teleop is active
-            controller_initial: Optional[np.ndarray] - 4x4 transformation matrix for initial controller transform or None to clear
-            robot_initial: Optional[np.ndarray] - 4x4 transformation matrix for initial robot transform or None to clear
+            controller_initial: np.ndarray | None - 4x4 transformation matrix for initial controller transform or None to clear
+            robot_initial: np.ndarray | None - 4x4 transformation matrix for initial robot transform or None to clear
         """
         with self.lock:
             self.teleop_active = active
@@ -199,7 +198,7 @@ class TeleopState:
 
     def get_initial_robot_controller_transforms(
         self,
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
         """Get initial robot and controller transforms.
 
         These two transforms are captured on rising edge of grip button
@@ -258,16 +257,16 @@ class TeleopState:
         with self.lock:
             self.current_joint_config = config.copy()
 
-    def set_target_transform(self, transform: Optional[np.ndarray]) -> None:
+    def set_target_transform(self, transform: np.ndarray | None) -> None:
         """Set target transform for visualization (thread-safe).
 
         Args:
-            transform: Optional[np.ndarray] - 4x4 transformation matrix or None to clear target transform
+            transform: np.ndarray | None - 4x4 transformation matrix or None to clear target transform
         """
         with self.lock:
             self.target_transform = transform.copy() if transform is not None else None
 
-    def get_target_transform(self) -> Optional[np.ndarray]:
+    def get_target_transform(self) -> np.ndarray | None:
         """Get target transform for visualization (thread-safe).
 
         Returns:
@@ -434,11 +433,7 @@ def data_collection_thread(
                 controller_initial_transform = controller_transform.copy()
 
                 # Capture initial robot end-effector pose
-                # TODO: figure out whether to use the IK solver or the robot controller to get the current end-effector pose
                 position, orientation = ik_solver.get_current_end_effector_pose()
-                # pose_vector_6d = robot_controller.get_current_end_pose()
-                # position = pose_vector_6d[:3]
-                # orientation = Rotation.from_euler('xyz', pose_vector_6d[3:6]).as_matrix()
 
                 robot_initial_transform = np.eye(4)
                 robot_initial_transform[:3, :3] = orientation
@@ -506,7 +501,7 @@ def ik_solver_thread(
             loop_start: float = time.time()
 
             # Get current state
-            # contoller transform to control the robot, trigger value to open/close gripper
+            # controller transform to control the robot, trigger value to open/close gripper
             controller_transform, _, trigger_value = state.get_controller_data()
             teleop_active = state.get_teleop_active()
             controller_initial, robot_initial = (
