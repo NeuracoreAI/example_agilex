@@ -7,8 +7,17 @@
         "requirements*.txt",
         "*.sh",
         ".pre-commit-config.yaml",
-        ".gitmodules",
+        ".gitmodules"
+    ],
+    "dictionaryDefinitions": [
+        {
+            "name": "example-agilex-dictionary",
+            "path": "./example-agilex-dictionary.txt",
+            "addWords": true
+        }
     ],
     "language": "en,en-GB",
-    "words": []
+    "dictionaries": [
+        "example-agilex-dictionary"
+    ]
 }
