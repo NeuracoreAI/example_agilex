@@ -2,8 +2,3 @@
 	path = meta_quest_reader
 	branch = feat-modify-teleop-apk
 	url = https://github.com/NeuracoreAI/meta_quest_reader.git
-
-[submodule "piper_sdk"]
-	path = piper_sdk
-	branch = master
-	url = https://github.com/agilexrobotics/piper_sdk.git
