@@ -39,10 +39,10 @@ from configs import (
     SOLVER_NAME,
     URDF_PATH,
 )
+from meta_quest_reader.reader import MetaQuestReader
 from scipy.spatial.transform import Rotation, Slerp
 from viser.extras import ViserUrdf
 
-from meta_quest_reader.reader import MetaQuestReader
 from pink_ik_solver import PinkIKSolver
 
 

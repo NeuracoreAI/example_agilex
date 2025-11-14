@@ -45,10 +45,10 @@ from configs import (
     URDF_PATH,
     VISUALIZATION_RATE,
 )
+from meta_quest_reader.reader import MetaQuestReader
 from scipy.spatial.transform import Rotation, Slerp
 from viser.extras import ViserUrdf
 
-from meta_quest_reader.reader import MetaQuestReader
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
 
