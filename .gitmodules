@@ -1,4 +1,4 @@
 [submodule "meta_quest_reader"]
 	path = meta_quest_reader
-	branch = feat-modify-teleop-apk
+	branch = main
 	url = https://github.com/NeuracoreAI/meta_quest_reader.git
