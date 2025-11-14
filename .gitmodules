@@ -1,4 +1,3 @@
-[submodule "meta_quest_reader"]
-	path = meta_quest_reader
-	branch = main
-	url = https://github.com/NeuracoreAI/meta_quest_reader.git
+[submodule "meta_quest_teleop"]
+	path = meta_quest_teleop
+	url = https://github.com/NeuracoreAI/meta_quest_teleop.git
