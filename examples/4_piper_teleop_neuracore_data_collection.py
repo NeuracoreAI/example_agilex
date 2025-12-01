@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Piper Robot Teleoperation with Meta Quest Controller - REAL ROBOT CONTROL.
+"""Piper Robot Teleoperation with Meta Quest Controller and NeuraCore data collection.
 
-This demo uses Pink IK control with Meta Quest controller input to control the REAL robot.
-- REAL ROBOT CONTROL - sends commands to physical robot!
-- Uses right hand controller grip as dead man's button
-- Uses ROS pointer frame for natural pointing control
-- Applies relative transformations accounting for different coordinate frames
+This demo uses Pink IK control with Meta Quest controller input to control the Piper robot and
+logs data to NeuraCore.
 """
 
 
