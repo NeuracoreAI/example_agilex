@@ -1,0 +1,22 @@
+name: piper-teleop
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - piper-sdk==0.6.1
+      - pin
+      - pin-pink
+      - qpsolvers[quadprog]
+      - yourdfpy
+      - pure-python-adb
+      - viser
+      - numpy
+      - scipy
+      - matplotlib
+      - neuracore
+      - neuracore_types
+
+
+
