@@ -18,6 +18,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from piper_controller import PiperController
 
@@ -80,7 +81,7 @@ class GUIRobotControl:
         self.linear_speed = 50.0  # 5mm/s
         self.angular_speed = 50.0  # 50 degrees per second
         self.joint_speed = 50.0  # 50 degrees per second for joints
-        self.gripper_speed = 100.0  # 100 degrees per second
+        self.gripper_speed = 1.0  # 1.0 normalized units per second (0.0 to 1.0 range)
         self.control_update_rate = robot_rate // 2  # Hz (half of the robot rate)
 
         # Store debug mode for command handler
@@ -165,7 +166,7 @@ class GUIRobotControl:
 
         # Gripper speed control
         ttk.Label(
-            gripper_frame, text="Gripper Speed (°/s):", font=("Arial", 9, "bold")
+            gripper_frame, text="Gripper Speed (%/s):", font=("Arial", 9, "bold")
         ).grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
         self.gripper_speed_var = tk.StringVar(value=str(self.gripper_speed))
         gripper_speed_entry = ttk.Entry(
@@ -854,73 +855,75 @@ class GUIRobotControl:
 
     def _update_status_display(self) -> None:
         """Update the robot status display with individual labels."""
-        try:
-            status = self.robot.get_robot_status()
+        status = self.robot.get_robot_status()
 
-            # Update stop/resume button text
-            if status["enabled"]:
-                self.stop_resume_button.config(text="Stop Robot")
-                self.robot_state_label.config(text="ENABLED", foreground="green")
-            else:
-                self.stop_resume_button.config(text="Resume Robot")
-                self.robot_state_label.config(text="DISABLED", foreground="red")
+        # Update stop/resume button text
+        if status["enabled"]:
+            self.stop_resume_button.config(text="Stop Robot")
+            self.robot_state_label.config(text="ENABLED", foreground="green")
+        else:
+            self.stop_resume_button.config(text="Resume Robot")
+            self.robot_state_label.config(text="DISABLED", foreground="red")
 
-            # Update target pose
-            target_pose = status["target_pose"]
-            self.target_pos_label.config(
-                text=f"X: {target_pose[0]:.1f}  Y: {target_pose[1]:.1f}  Z: {target_pose[2]:.1f}"
+        # Update target pose
+        target_pose = status["target_pose"]
+        target_position = target_pose[:3, 3]
+        target_rotation = Rotation.from_matrix(target_pose[:3, :3]).as_euler(
+            "xyz", degrees=True
+        )
+        self.target_pos_label.config(
+            text=f"X: {target_position[0]:.1f}  Y: {target_position[1]:.1f}  Z: {target_position[2]:.1f}"
+        )
+        self.target_rot_label.config(
+            text=f"RX: {target_rotation[0]:.1f}  RY: {target_rotation[1]:.1f}  RZ: {target_rotation[2]:.1f}"
+        )
+
+        # Update target joint angles
+        target_joint_angles = status["target_joint_angles"]
+        joint_text = f"J1: {target_joint_angles[0]:.1f}°  J2: {target_joint_angles[1]:.1f}°  J3: {target_joint_angles[2]:.1f}°"
+        joint_text += f"\nJ4: {target_joint_angles[3]:.1f}°  J5: {target_joint_angles[4]:.1f}°  J6: {target_joint_angles[5]:.1f}°"
+        self.target_joint_angles_label.config(text=joint_text, foreground="black")
+
+        # Check if target gripper is valid
+        gripper_open_value = status["gripper_open_value"]
+        self.target_gripper_label.config(text=f"{gripper_open_value:.3f} (normalized)")
+
+        # Update current pose (if available)
+        if status["current_end_pose"] is not None:
+            current_pose = status["current_end_pose"]
+            current_position = current_pose[:3, 3]
+            current_rotation = Rotation.from_matrix(current_pose[:3, :3]).as_euler(
+                "xyz", degrees=True
             )
-            self.target_rot_label.config(
-                text=f"RX: {target_pose[3]:.1f}  RY: {target_pose[4]:.1f}  RZ: {target_pose[5]:.1f}"
+            self.current_pos_label.config(
+                text=f"X: {current_position[0]:.1f}  Y: {current_position[1]:.1f}  Z: {current_position[2]:.1f}",
+                foreground="black",
             )
+            self.current_rot_label.config(
+                text=f"RX: {current_rotation[0]:.1f}  RY: {current_rotation[1]:.1f}  RZ: {current_rotation[2]:.1f}",
+                foreground="black",
+            )
+        else:
+            self.current_pos_label.config(text="No feedback", foreground="gray")
+            self.current_rot_label.config(text="No feedback", foreground="gray")
 
-            # Update target joint angles
-            target_joint_angles = status["target_joint_angles"]
-            joint_text = f"J1: {target_joint_angles[0]:.1f}°  J2: {target_joint_angles[1]:.1f}°  J3: {target_joint_angles[2]:.1f}°"
-            joint_text += f"\nJ4: {target_joint_angles[3]:.1f}°  J5: {target_joint_angles[4]:.1f}°  J6: {target_joint_angles[5]:.1f}°"
-            self.target_joint_angles_label.config(text=joint_text, foreground="black")
+        # Update current gripper (if available)
+        if status["current_gripper_open_value"] is not None:
+            self.current_gripper_label.config(
+                text=f"{status['current_gripper_open_value']:.3f} (normalized)",
+                foreground="black",
+            )
+        else:
+            self.current_gripper_label.config(text="No feedback", foreground="gray")
 
-            # Check if target gripper is valid
-            gripper_open_value = status["gripper_open_value"]
-            self.target_gripper_label.config(text=f"{gripper_open_value:.1f}°")
-
-            # Update current pose (if available)
-            if status["current_end_pose"]:
-                current_pose = status["current_end_pose"]
-                self.current_pos_label.config(
-                    text=f"X: {current_pose[0]:.1f}  Y: {current_pose[1]:.1f}  Z: {current_pose[2]:.1f}",
-                    foreground="black",
-                )
-                self.current_rot_label.config(
-                    text=f"RX: {current_pose[3]:.1f}  RY: {current_pose[4]:.1f}  RZ: {current_pose[5]:.1f}",
-                    foreground="black",
-                )
-            else:
-                self.current_pos_label.config(text="No feedback", foreground="gray")
-                self.current_rot_label.config(text="No feedback", foreground="gray")
-
-            # Update current gripper (if available)
-            if status["current_gripper_open_value"] is not None:
-                self.current_gripper_label.config(
-                    text=f"{status['current_gripper_open_value']:.1f}°",
-                    foreground="black",
-                )
-            else:
-                self.current_gripper_label.config(text="No feedback", foreground="gray")
-
-            # Update joint angles (if available)
-            if status["current_joint_angles"]:
-                joint_angles = status["current_joint_angles"]
-                joint_text = f"J1: {joint_angles[0]:.1f}°  J2: {joint_angles[1]:.1f}°  J3: {joint_angles[2]:.1f}°"
-                joint_text += f"\nJ4: {joint_angles[3]:.1f}°  J5: {joint_angles[4]:.1f}°  J6: {joint_angles[5]:.1f}°"
-                self.joint_angles_label.config(text=joint_text, foreground="black")
-            else:
-                self.joint_angles_label.config(text="No feedback", foreground="gray")
-
-        except Exception as e:
-            print(f"Status update error: {e}")
-            # Show error in status labels
-            self.robot_state_label.config(text="ERROR", foreground="red")
+        # Update joint angles (if available)
+        if status["current_joint_angles"] is not None:
+            joint_angles = status["current_joint_angles"]
+            joint_text = f"J1: {joint_angles[0]:.1f}°  J2: {joint_angles[1]:.1f}°  J3: {joint_angles[2]:.1f}°"
+            joint_text += f"\nJ4: {joint_angles[3]:.1f}°  J5: {joint_angles[4]:.1f}°  J6: {joint_angles[5]:.1f}°"
+            self.joint_angles_label.config(text=joint_text, foreground="black")
+        else:
+            self.joint_angles_label.config(text="No feedback", foreground="gray")
 
     def _schedule_status_update(self) -> None:
         """Schedule the next status update."""

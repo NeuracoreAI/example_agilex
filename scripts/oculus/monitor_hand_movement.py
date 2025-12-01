@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "meta_quest_reader"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "meta_quest_teleop"))
 
-from meta_quest_reader.reader import MetaQuestReader
+from meta_quest_teleop.reader import MetaQuestReader
 
 
 class MovementMonitor:
@@ -143,11 +143,9 @@ def main() -> None:
     print("=" * 80)
     print("\nConnecting to Meta Quest...")
 
-    # Initialize reader wrapper
+    # Initialize reader
     try:
-        reader = MetaQuestReader(
-            ip_address=None, port=5555, print_FPS=False, run=True  # Auto-detect
-        )
+        reader = MetaQuestReader(ip_address=None, port=5555, run=True)  # Auto-detect
     except Exception as e:
         print(f"Error connecting to Meta Quest: {e}")
         print("Make sure the Meta Quest is connected and the APK is running.")

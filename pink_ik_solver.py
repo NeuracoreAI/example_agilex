@@ -312,7 +312,10 @@ class PinkIKSolver:
             )
 
             # Integrate configuration
-            self.configuration.integrate_inplace(velocity, dt)
+            new_q = self.configuration.integrate(velocity, dt)
+
+            # update configuration
+            self.set_configuration_no_task_update(new_q)
 
             # Update timing statistics
             elapsed_time = time.time() - start_time
@@ -334,17 +337,17 @@ class PinkIKSolver:
         assert self.configuration is not None, "Configuration must be initialized"
         return self.configuration.q.copy()
 
-    def get_current_end_effector_pose(self) -> tuple[np.ndarray, np.ndarray]:
+    def get_current_end_effector_pose(self) -> np.ndarray:
         """Get current end effector pose.
 
         Returns:
-            Tuple of (position, rotation_matrix).
+            4x4 transform matrix.
         """
         assert self.configuration is not None, "Configuration must be initialized"
-        transform = self.configuration.get_transform_frame_to_world(
+        transform: pin.SE3 = self.configuration.get_transform_frame_to_world(
             self.end_effector_frame
         )
-        return transform.translation.copy(), transform.rotation.copy()
+        return transform.np.copy()
 
     def get_statistics(self) -> dict[str, float | int]:
         """Get solver timing statistics (in milliseconds)."""
@@ -362,8 +365,8 @@ class PinkIKSolver:
             "solve_count": len(self.solve_times),
         }
 
-    def set_configuration(self, joint_config: np.ndarray) -> None:
-        """Set the robot to a specific joint configuration.
+    def set_configuration_no_task_update(self, joint_config: np.ndarray) -> None:
+        """Set the robot to a specific joint configuration without updating the task.
 
         Args:
             joint_config: Array of joint angles to set
@@ -375,13 +378,31 @@ class PinkIKSolver:
         """
         assert self.urdf_model is not None, "Robot model must be initialized"
         assert self.configuration is not None, "Configuration must be initialized"
-        assert self.ee_task is not None, "End effector task must be initialized"
         if len(joint_config) != self.urdf_model.nq:
             raise ValueError(
                 f"Joint configuration must have {self.urdf_model.nq} values, got {len(joint_config)}"
             )
 
+        # Clamp configuration to limits
+        q_max = self.urdf_model.upperPositionLimit
+        q_min = self.urdf_model.lowerPositionLimit
+        joint_config = np.clip(joint_config, q_min, q_max)
+
+        # Update configuration
         self.configuration.update(joint_config)
+
+    def set_configuration(self, joint_config: np.ndarray) -> None:
+        """Set the robot to a specific joint configuration.
+
+        Args:
+            joint_config: Array of joint angles to set
+
+        Raises:
+            ValueError: If the joint configuration is not valid (joint
+                configuration must have the same number of joints as the robot
+                model).
+        """
+        self.set_configuration_no_task_update(joint_config)
         self.ee_task.set_target_from_configuration(self.configuration)
 
     def reset_to_neutral(self) -> None:
