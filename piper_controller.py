@@ -6,7 +6,9 @@ import time
 from enum import Enum
 from typing import Any
 
+import numpy as np
 from piper_sdk import C_PiperInterface_V2  # type: ignore[attr-defined]
+from scipy.spatial.transform import Rotation
 
 
 class PiperController:
@@ -26,7 +28,9 @@ class PiperController:
         self,
         can_interface: str = "can0",
         robot_rate: float = 100.0,
-        control_mode: "PiperController.ControlMode" = ControlMode.END_EFFECTOR,
+        control_mode: "PiperController.ControlMode" = ControlMode.JOINT_SPACE,
+        neutral_joint_angles: np.ndarray | None = None,
+        neutral_end_effector_pose: np.ndarray | None = None,
         debug_mode: bool = False,
     ) -> None:
         """Initialize the robot controller.
@@ -35,6 +39,8 @@ class PiperController:
             can_interface: CAN interface for robot communication (default: 'can0')
             robot_rate: Robot control loop rate in Hz (default: 100.0)
             control_mode: Initial control mode (END_EFFECTOR or JOINT_SPACE)
+            neutral_joint_angles: Neutral joint angles [j1, j2, j3, j4, j5, j6] in degrees (default: None)
+            neutral_end_effector_pose: Neutral end effector pose as 4x4 transformation matrix (default: None)
             debug_mode: Enable debug logging (default: False)
         """
         self.can_interface = can_interface
@@ -58,23 +64,34 @@ class PiperController:
         self._control_mode = control_mode
 
         # HOME positions in end effector space and joint space
+        if neutral_end_effector_pose is not None:
+            if neutral_end_effector_pose.shape == (4, 4):
+                self.HOME_POSE = neutral_end_effector_pose.copy().astype(np.float64)
+            else:
+                raise ValueError(
+                    "neutral_end_effector_pose must be a 4x4 transformation matrix"
+                )
+        else:
+            # Convert default 6D pose to 4x4 matrix
+            default_6d_pose = np.array(
+                [-3.123, -125.085, 382.251, -78.132, 84.303, -169.496], dtype=np.float64
+            )
+            self.HOME_POSE = self._pose_6d_to_4x4(default_6d_pose)
 
-        # NOTE: this is set to a preferred home pose for the robot
-        self.HOME_POSE = [-3.123, -125.085, 382.251, -78.132, 84.303, -169.496]
-        self.HOME_JOINT_ANGLES = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        self.HOME_GRIPPER_OPEN_VALUE = 53.800
+        if neutral_joint_angles is not None:
+            self.HOME_JOINT_ANGLES = np.array(neutral_joint_angles, dtype=np.float64)
+        else:
+            self.HOME_JOINT_ANGLES = np.array(
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float64
+            )
 
-        # Joint limits from SDK documentation (in degrees)
-        self.JOINT_LIMITS = [
-            [-150.0, 150.0],  # Joint 1
-            [0.0, 180.0],  # Joint 2
-            [-170.0, 0.0],  # Joint 3
-            [-100.0, 100.0],  # Joint 4
-            [-70.0, 70.0],  # Joint 5
-            [-120.0, 120.0],  # Joint 6
-        ]
+        # Gripper range in degrees (for internal SDK communication)
+        self.GRIPPER_DEGREES_MIN = 0.000
+        self.GRIPPER_DEGREES_MAX = 95.00
+        self.GRIPPER_DEGREES_RANGE = self.GRIPPER_DEGREES_MAX - self.GRIPPER_DEGREES_MIN
 
-        self.GRIPPER_LIMITS = [1.000, 101.00]  # in degrees
+        # Home gripper value in normalized form (53.8 / 95.0)
+        self.HOME_GRIPPER_OPEN_VALUE_DEGREES = 53.800
 
         # End-effector target pose
         self._target_pose = self.HOME_POSE.copy()
@@ -83,7 +100,7 @@ class PiperController:
         self._target_joint_angles = self.HOME_JOINT_ANGLES.copy()
 
         # Gripper target open value
-        self._gripper_open_value = self.HOME_GRIPPER_OPEN_VALUE
+        self._gripper_open_value_degrees = self.HOME_GRIPPER_OPEN_VALUE_DEGREES
 
         # Initialize robot connection
         self._initialize_robot()
@@ -153,6 +170,21 @@ class PiperController:
         )
         self.piper.ConnectPort()
 
+        self.piper.SetSDKGripperRangeParam(0.0, 0.1)
+
+        self.JOINT_LIMITS = np.degrees(
+            np.array(
+                [
+                    self.piper.GetSDKJointLimitParam("j1"),
+                    self.piper.GetSDKJointLimitParam("j2"),
+                    self.piper.GetSDKJointLimitParam("j3"),
+                    self.piper.GetSDKJointLimitParam("j4"),
+                    self.piper.GetSDKJointLimitParam("j5"),
+                    self.piper.GetSDKJointLimitParam("j6"),
+                ]
+            )
+        )
+
         self._enable_robot()
 
         print("✓ Robot initialized successfully!")
@@ -194,42 +226,76 @@ class PiperController:
             if self.debug_mode:
                 print(f"Control mode changed: {old_mode.value} -> {mode.value}")
 
-    def get_target_pose(self) -> list[float]:
-        """Get the current target position.
+    @staticmethod
+    def _pose_6d_to_4x4(pose_6d: np.ndarray) -> np.ndarray:
+        """Convert 6D pose [x, y, z, rx, ry, rz] to 4x4 transformation matrix.
+
+        Args:
+            pose_6d: 6D pose [x, y, z in mm, rx, ry, rz in degrees]
 
         Returns:
-            Current target position [x, y, z, rx, ry, rz] in mm and degrees
+            4x4 transformation matrix
+        """
+        transform = np.eye(4, dtype=np.float64)
+        transform[:3, 3] = pose_6d[:3]  # Position in mm
+        # Convert Euler angles (degrees) to rotation matrix
+        rot = Rotation.from_euler("xyz", pose_6d[3:6], degrees=True)
+        transform[:3, :3] = rot.as_matrix()
+        return transform
+
+    @staticmethod
+    def _pose_4x4_to_6d(transform: np.ndarray) -> np.ndarray:
+        """Convert 4x4 transformation matrix to 6D pose [x, y, z, rx, ry, rz].
+
+        Args:
+            transform: 4x4 transformation matrix
+
+        Returns:
+            6D pose [x, y, z in mm, rx, ry, rz in degrees]
+        """
+        pose_6d = np.zeros(6, dtype=np.float64)
+        pose_6d[:3] = transform[:3, 3]  # Position in mm
+        # Convert rotation matrix to Euler angles (degrees)
+        rot = Rotation.from_matrix(transform[:3, :3])
+        pose_6d[3:6] = rot.as_euler("xyz", degrees=True)
+        return pose_6d
+
+    def get_target_pose(self) -> np.ndarray:
+        """Get the current target pose.
+
+        Returns:
+            4x4 transformation matrix representing the target pose
         """
         with self.position_lock:
             return self._target_pose.copy()
 
     def set_target_pose(
         self,
-        position: list[float],
-        orientation: list[float],
+        transform: np.ndarray,
     ) -> None:
-        """Set target target pose.
+        """Set target pose from a 4x4 transformation matrix.
 
         Args:
-            position: Target position [x, y, z] in millimeters
-            orientation: Target orientation [rx, ry, rz] in degrees
+            transform: 4x4 transformation matrix
         """
         with self.position_lock:
-            self._target_pose[0] = position[0]
-            self._target_pose[1] = position[1]
-            self._target_pose[2] = position[2]
-
-            self._target_pose[3] = orientation[0]
-            self._target_pose[4] = orientation[1]
-            self._target_pose[5] = orientation[2]
+            if transform.shape != (4, 4):
+                raise ValueError("transform must be a 4x4 transformation matrix")
+            self._target_pose = transform.copy().astype(np.float64)
 
             if self.debug_mode:
-                print(f"Target pose set: {self._target_pose}")
+                pos = self._target_pose[:3, 3]
+                rot_euler = Rotation.from_matrix(self._target_pose[:3, :3]).as_euler(
+                    "xyz", degrees=True
+                )
+                print(
+                    f"Target pose set: pos=[{pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}], rot=[{rot_euler[0]:.1f}, {rot_euler[1]:.1f}, {rot_euler[2]:.1f}]"
+                )
 
     def update_target_pose(
         self,
-        linear_delta: list[float],
-        angular_delta: list[float],
+        linear_delta: np.ndarray,
+        angular_delta: np.ndarray,
     ) -> None:
         """Update target position with relative deltas.
 
@@ -238,70 +304,80 @@ class PiperController:
             angular_delta: Change in orientation [droll, dpitch, dyaw] in degrees
         """
         with self.position_lock:
-            new_pose = self._target_pose.copy()
+            lin_delta = np.array(linear_delta, dtype=np.float64)
+            ang_delta = np.array(angular_delta, dtype=np.float64)
 
             # Update position (in mm)
-            new_pose[0] += linear_delta[0]
-            new_pose[1] += linear_delta[1]
-            new_pose[2] += linear_delta[2]
+            self._target_pose[:3, 3] += lin_delta
 
-            # Update orientation (in degrees)
-            new_pose[3] += angular_delta[0]
-            new_pose[4] += angular_delta[1]
-            new_pose[5] += angular_delta[2]
-
-            self._target_pose = new_pose
+            # Update orientation: apply rotation delta to current rotation
+            current_rot = Rotation.from_matrix(self._target_pose[:3, :3])
+            delta_rot = Rotation.from_euler("xyz", ang_delta, degrees=True)
+            new_rot = current_rot * delta_rot
+            self._target_pose[:3, :3] = new_rot.as_matrix()
 
             if self.debug_mode:
+                pos = self._target_pose[:3, 3]
+                rot_euler = new_rot.as_euler("xyz", degrees=True)
                 print(
-                    f"Pose updated: pos=[{new_pose[0]:.1f}, {new_pose[1]:.1f}, {new_pose[2]:.1f}], "
-                    f"rot=[{new_pose[3]:.1f}, {new_pose[4]:.1f}, {new_pose[5]:.1f}]"
+                    f"Pose updated: pos=[{pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}], "
+                    f"rot=[{rot_euler[0]:.1f}, {rot_euler[1]:.1f}, {rot_euler[2]:.1f}]"
                 )
 
     def get_gripper_open_value(self) -> float:
         """Get the current gripper open value.
 
         Returns:
-            Current gripper open value in degrees.
+            Current gripper open value normalized (0.0 to 1.0).
         """
         with self.position_lock:
-            return self._gripper_open_value
+            # Convert from degrees to normalized (0.0 to 1.0)
+            normalized = (
+                self._gripper_open_value_degrees - self.GRIPPER_DEGREES_MIN
+            ) / self.GRIPPER_DEGREES_RANGE
+            return float(np.clip(normalized, 0.0, 1.0))
 
     def set_gripper_open_value(self, gripper_open_value: float) -> None:
         """Update target gripper position.
 
         Args:
-            gripper_open_value: Gripper open value in degrees.
+            gripper_open_value: Gripper open value normalized (0.0 to 1.0).
         """
         with self.position_lock:
-            # clamp gripper open value to limits
-            new_gripper_open_value = max(
-                self.GRIPPER_LIMITS[0], min(self.GRIPPER_LIMITS[1], gripper_open_value)
+            # Clamp normalized value to [0.0, 1.0]
+            normalized = float(np.clip(gripper_open_value, 0.0, 1.0))
+            # Convert to degrees for internal storage
+            self._gripper_open_value_degrees = (
+                normalized * self.GRIPPER_DEGREES_RANGE + self.GRIPPER_DEGREES_MIN
             )
-            self._gripper_open_value = new_gripper_open_value
 
             if self.debug_mode:
-                print(f"Gripper updated: {self._gripper_open_value}")
+                print(f"Gripper updated: {normalized:.3f} (normalized)")
 
     def update_gripper_open_value(self, gripper_open_value_delta: float) -> None:
         """Update target gripper position.
 
         Args:
-            gripper_open_value_delta: Gripper open value delta in degrees.
+            gripper_open_value_delta: Gripper open value delta normalized (-1.0 to 1.0).
         """
         with self.position_lock:
-            new_gripper_open_value = self._gripper_open_value + gripper_open_value_delta
-
-            # clamp gripper open value to limits
-            self._gripper_open_value = max(
-                self.GRIPPER_LIMITS[0],
-                min(self.GRIPPER_LIMITS[1], new_gripper_open_value),
+            # Get current normalized value
+            current_normalized = (
+                self._gripper_open_value_degrees - self.GRIPPER_DEGREES_MIN
+            ) / self.GRIPPER_DEGREES_RANGE
+            # Add delta and clamp to [0.0, 1.0]
+            new_normalized = float(
+                np.clip(current_normalized + gripper_open_value_delta, 0.0, 1.0)
+            )
+            # Convert back to degrees for internal storage
+            self._gripper_open_value_degrees = (
+                new_normalized * self.GRIPPER_DEGREES_RANGE + self.GRIPPER_DEGREES_MIN
             )
 
             if self.debug_mode:
-                print(f"Gripper updated: {self._gripper_open_value}")
+                print(f"Gripper updated: {new_normalized:.3f} (normalized)")
 
-    def get_target_joint_angles(self) -> list[float]:
+    def get_target_joint_angles(self) -> np.ndarray:
         """Get the current target joint angles.
 
         Returns:
@@ -310,40 +386,39 @@ class PiperController:
         with self.position_lock:
             return self._target_joint_angles.copy()
 
-    def set_target_joint_angles(self, joint_angles: list[float]) -> None:
+    def set_target_joint_angles(self, joint_angles: np.ndarray) -> None:
         """Set target joint angles.
 
         Args:
             joint_angles: Target joint angles [j1, j2, j3, j4, j5, j6] in degrees
         """
         with self.position_lock:
-            # Clamp joint angles to limits
-            clamped_angles = []
-            for i, angle in enumerate(joint_angles):
-                min_limit, max_limit = self.JOINT_LIMITS[i]
-                clamped_angle = max(min_limit, min(max_limit, angle))
-                clamped_angles.append(clamped_angle)
+            angles = np.array(joint_angles, dtype=np.float64)
+
+            # Clamp joint angles to limits using numpy
+            clamped_angles = np.clip(
+                angles, self.JOINT_LIMITS[:, 0], self.JOINT_LIMITS[:, 1]
+            )
 
             self._target_joint_angles = clamped_angles
 
             if self.debug_mode:
                 print(f"Target joint angles set: {self._target_joint_angles}")
 
-    def update_target_joint_angles(self, joint_deltas: list[float]) -> None:
+    def update_target_joint_angles(self, joint_deltas: np.ndarray) -> None:
         """Update target joint angles with relative deltas.
 
         Args:
             joint_deltas: Change in joint angles [dj1, dj2, dj3, dj4, dj5, dj6] in degrees
         """
         with self.position_lock:
-            new_joint_angles = []
-            for i, delta in enumerate(joint_deltas):
-                new_angle = self._target_joint_angles[i] + delta
-                min_limit, max_limit = self.JOINT_LIMITS[i]
-                clamped_angle = max(min_limit, min(max_limit, new_angle))
-                new_joint_angles.append(clamped_angle)
+            deltas = np.array(joint_deltas, dtype=np.float64)
+            new_joint_angles = self._target_joint_angles + deltas
 
-            self._target_joint_angles = new_joint_angles
+            # Clamp joint angles to limits using numpy
+            self._target_joint_angles = np.clip(
+                new_joint_angles, self.JOINT_LIMITS[:, 0], self.JOINT_LIMITS[:, 1]
+            )
 
             if self.debug_mode:
                 print(f"Joint angles updated: {self._target_joint_angles}")
@@ -407,7 +482,7 @@ class PiperController:
                             self._send_joint_command(self._target_joint_angles)
 
                         # Always send gripper command regardless of control mode
-                        self._send_gripper_command(self._gripper_open_value)
+                        self._send_gripper_command(self._gripper_open_value_degrees)
                 else:
                     # Robot is not enabled, just sleep without sending commands
                     if self.debug_mode:
@@ -419,20 +494,23 @@ class PiperController:
                 print(f"Robot control loop error: {e}")
                 time.sleep(0.01)
 
-    def _send_end_effector_command(self, command: list[float]) -> None:
+    def _send_end_effector_command(self, transform: np.ndarray) -> None:
         """Send end-effector pose command to the robot.
 
         Args:
-            command: Command to the robot [x, y, z, rx, ry, rz, gripper]
+            transform: 4x4 transformation matrix
         """
         try:
+            # Convert 4x4 matrix to 6D pose for SDK
+            pose_6d = self._pose_4x4_to_6d(transform)
+
             # Convert from mm/degrees to piper SDK units (0.001mm/0.001degrees)
-            X = round(command[0] * 1000)
-            Y = round(command[1] * 1000)
-            Z = round(command[2] * 1000)
-            RX = round(command[3] * 1000)
-            RY = round(command[4] * 1000)
-            RZ = round(command[5] * 1000)
+            X = round(float(pose_6d[0] * 1000))
+            Y = round(float(pose_6d[1] * 1000))
+            Z = round(float(pose_6d[2] * 1000))
+            RX = round(float(pose_6d[3] * 1000))
+            RY = round(float(pose_6d[4] * 1000))
+            RZ = round(float(pose_6d[5] * 1000))
 
             # Set robot to position control mode (move_mode = 0x00)
             self.piper.MotionCtrl_2(0x01, 0x00, 100, 0x00)
@@ -441,7 +519,7 @@ class PiperController:
         except Exception as e:
             print(f"Failed to send end-effector command: {e}")
 
-    def _send_joint_command(self, joint_angles: list[float]) -> None:
+    def _send_joint_command(self, joint_angles: np.ndarray) -> None:
         """Send joint angles command to the robot.
 
         Args:
@@ -449,12 +527,12 @@ class PiperController:
         """
         try:
             # Convert from degrees to piper SDK units (0.001degrees)
-            joint_1 = round(joint_angles[0] * 1000)
-            joint_2 = round(joint_angles[1] * 1000)
-            joint_3 = round(joint_angles[2] * 1000)
-            joint_4 = round(joint_angles[3] * 1000)
-            joint_5 = round(joint_angles[4] * 1000)
-            joint_6 = round(joint_angles[5] * 1000)
+            joint_1 = round(float(joint_angles[0] * 1000))
+            joint_2 = round(float(joint_angles[1] * 1000))
+            joint_3 = round(float(joint_angles[2] * 1000))
+            joint_4 = round(float(joint_angles[3] * 1000))
+            joint_5 = round(float(joint_angles[4] * 1000))
+            joint_6 = round(float(joint_angles[5] * 1000))
 
             # Set robot to joint control mode (move_mode = 0x01)
             self.piper.MotionCtrl_2(0x01, 0x01, 100, 0x00)
@@ -463,15 +541,15 @@ class PiperController:
         except Exception as e:
             print(f"Failed to send joint command: {e}")
 
-    def _send_gripper_command(self, gripper_open_value: float) -> None:
+    def _send_gripper_command(self, gripper_open_value_degrees: float) -> None:
         """Send gripper command to the robot.
 
         Args:
-            gripper_open_value: Gripper open value in degrees
+            gripper_open_value_degrees: Gripper open value in degrees
         """
         try:
             # Convert from degrees to piper SDK units (0.001degrees)
-            gripper_value = round(gripper_open_value * 1000)
+            gripper_value = round(gripper_open_value_degrees * 1000)
             self.piper.GripperCtrl(gripper_value, 1000, 0x01, 0)
 
         except Exception as e:
@@ -555,16 +633,14 @@ class PiperController:
                     if joint_angles is not None and len(joint_angles) >= 6:
                         self.set_target_joint_angles(joint_angles)
                 elif current_mode == PiperController.ControlMode.END_EFFECTOR:
-                    end_pose = self.get_current_end_pose()
-                    if end_pose is not None and len(end_pose) >= 6:
-                        position = end_pose[:3]
-                        orientation = end_pose[3:6]
-                        self.set_target_pose(position, orientation)
+                    end_pose = self.get_current_end_effector_pose()
+                    if end_pose is not None and end_pose.shape == (4, 4):
+                        self.set_target_pose(end_pose)
 
                 # Sync gripper if reading is available
-                gripper_value = self.get_current_gripper_open_value()
-                if gripper_value is not None:
-                    self.set_gripper_open_value(gripper_value)
+                gripper_normalized = self.get_current_gripper_open_value()
+                if gripper_normalized is not None:
+                    self.set_gripper_open_value(gripper_normalized)
             except Exception as sync_err:
                 if self.debug_mode:
                     print(f"Warning: failed to sync targets on resume: {sync_err}")
@@ -576,47 +652,56 @@ class PiperController:
             print(f"✗ Resume robot error: {e}")
             return False
 
-    def get_current_end_pose(self) -> list[float] | None:
+    def get_current_end_effector_pose(self) -> np.ndarray | None:
         """Get the current measured end effector pose from the robot, if available.
 
         Returns:
-            list or None: [x, y, z, rx, ry, rz] or None if not available
+            4x4 transformation matrix or None if not available
         """
         if hasattr(self, "piper") and self.piper is not None:
             try:
                 end_pose_msg = self.piper.GetArmEndPoseMsgs()
                 if end_pose_msg:
-                    return [
-                        end_pose_msg.end_pose.X_axis / 1000,
-                        end_pose_msg.end_pose.Y_axis / 1000,
-                        end_pose_msg.end_pose.Z_axis / 1000,
-                        end_pose_msg.end_pose.RX_axis / 1000,
-                        end_pose_msg.end_pose.RY_axis / 1000,
-                        end_pose_msg.end_pose.RZ_axis / 1000,
-                    ]
+                    # Get 6D pose from SDK
+                    pose_6d = np.array(
+                        [
+                            end_pose_msg.end_pose.X_axis / 1000,
+                            end_pose_msg.end_pose.Y_axis / 1000,
+                            end_pose_msg.end_pose.Z_axis / 1000,
+                            end_pose_msg.end_pose.RX_axis / 1000,
+                            end_pose_msg.end_pose.RY_axis / 1000,
+                            end_pose_msg.end_pose.RZ_axis / 1000,
+                        ],
+                        dtype=np.float64,
+                    )
+                    # Convert to 4x4 matrix
+                    return self._pose_6d_to_4x4(pose_6d)
             except Exception as e:
                 if self.debug_mode:
                     print(f"Failed to get current end pose: {e}")
         return None
 
-    def get_current_joint_angles(self) -> list[float] | None:
+    def get_current_joint_angles(self) -> np.ndarray | None:
         """Get the current measured joint angles from the robot, if available.
 
         Returns:
-            list or None: [j1, j2, j3, j4, j5, j6] or None if not available
+            numpy array or None: [j1, j2, j3, j4, j5, j6] or None if not available
         """
         if hasattr(self, "piper") and self.piper is not None:
             try:
                 joint_msg = self.piper.GetArmJointMsgs().joint_state
                 if joint_msg:
-                    return [
-                        joint_msg.joint_1 / 1000,
-                        joint_msg.joint_2 / 1000,
-                        joint_msg.joint_3 / 1000,
-                        joint_msg.joint_4 / 1000,
-                        joint_msg.joint_5 / 1000,
-                        joint_msg.joint_6 / 1000,
-                    ]
+                    return np.array(
+                        [
+                            joint_msg.joint_1 / 1000,
+                            joint_msg.joint_2 / 1000,
+                            joint_msg.joint_3 / 1000,
+                            joint_msg.joint_4 / 1000,
+                            joint_msg.joint_5 / 1000,
+                            joint_msg.joint_6 / 1000,
+                        ],
+                        dtype=np.float64,
+                    )
             except Exception as e:
                 if self.debug_mode:
                     print(f"Failed to get current joint angles: {e}")
@@ -626,13 +711,18 @@ class PiperController:
         """Get the current measured gripper open value from the robot, if available.
 
         Returns:
-            float or None: Current gripper open value or None if not available
+            float or None: Current gripper open value normalized (0.0 to 1.0) or None if not available
         """
         if hasattr(self, "piper") and self.piper is not None:
             try:
                 gripper_msg = self.piper.GetArmGripperMsgs()
                 if gripper_msg:
-                    return gripper_msg.gripper_state.grippers_angle / 1000
+                    gripper_degrees = gripper_msg.gripper_state.grippers_angle / 1000
+                    # Convert from degrees to normalized (0.0 to 1.0)
+                    normalized = (
+                        gripper_degrees - self.GRIPPER_DEGREES_MIN
+                    ) / self.GRIPPER_DEGREES_RANGE
+                    return float(np.clip(normalized, 0.0, 1.0))
             except Exception as e:
                 if self.debug_mode:
                     print(f"Failed to get current gripper open value: {e}")
@@ -651,7 +741,7 @@ class PiperController:
                 "target_pose": self.get_target_pose(),
                 "target_joint_angles": self.get_target_joint_angles(),
                 "gripper_open_value": self.get_gripper_open_value(),
-                "current_end_pose": self.get_current_end_pose(),
+                "current_end_pose": self.get_current_end_effector_pose(),
                 "current_joint_angles": self.get_current_joint_angles(),
                 "current_gripper_open_value": self.get_current_gripper_open_value(),
             }
