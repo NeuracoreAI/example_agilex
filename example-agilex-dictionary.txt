@@ -9,11 +9,15 @@ Marquardt
 mathbb
 mathrm
 ndarray
+neuracore
 nframes
+numpy
 padx
 pady
+qpsolvers
 quadprog
 rgba
+scipy
 slerp
 Slerp
 SLERP
@@ -33,3 +37,9 @@ Viser
 wxyz
 xyzw
 yourdfpy
+asanyarray
+imshow
+linalg
+matplotlib
+pyrealsense
+rotvec
