@@ -22,7 +22,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.configs import (
+    GRIPPER_LOGGING_NAME,
+    JOINT_NAMES,
     NEUTRAL_JOINT_ANGLES,
+    POLICY_EXECUTION_RATE,
+    PREDICTION_HORIZON_EXECUTION_RATIO,
     ROBOT_RATE,
     URDF_PATH,
 )
@@ -32,13 +36,6 @@ from common.threads.camera import camera_thread
 from common.threads.joint_state import joint_state_thread
 
 from piper_controller import PiperController
-
-# Constants
-POLICY_EXECUTION_RATE = 100.0  # Hz
-PREDICTION_HORIZON_EXECUTION_RATIO = 0.5
-
-GRIPPER_NAME = "gripper"
-JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 
 
 def run_policy(
@@ -80,7 +77,7 @@ def run_policy(
     joint_positions_dict = {
         JOINT_NAMES[i]: angle for i, angle in enumerate(joint_angles_rad)
     }
-    gripper_open_amounts_dict = {GRIPPER_NAME: gripper_open_value}
+    gripper_open_amounts_dict = {GRIPPER_LOGGING_NAME: gripper_open_value}
 
     # Log joint positions parallel gripper open amounts and RGB image to NeuraCore
     nc.log_joint_positions(joint_positions_dict)
@@ -141,10 +138,11 @@ def execute_horizon(
 
         if (
             sync_point.parallel_gripper_open_amounts is not None
-            and GRIPPER_NAME in sync_point.parallel_gripper_open_amounts.open_amounts
+            and GRIPPER_LOGGING_NAME
+            in sync_point.parallel_gripper_open_amounts.open_amounts
         ):
             gripper_value = sync_point.parallel_gripper_open_amounts.open_amounts[
-                GRIPPER_NAME
+                GRIPPER_LOGGING_NAME
             ]
             robot_controller.set_gripper_open_value(gripper_value)
 

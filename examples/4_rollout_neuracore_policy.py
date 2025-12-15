@@ -37,16 +37,23 @@ from common.configs import (
     DAMPING_COST,
     FRAME_TASK_GAIN,
     GRIPPER_FRAME_NAME,
+    GRIPPER_LOGGING_NAME,
     IK_SOLVER_RATE,
+    JOINT_NAMES,
     JOINT_STATE_STREAMING_RATE,
     LM_DAMPING,
+    MAX_ACTION_ERROR_THRESHOLD,
+    MAX_SAFETY_THRESHOLD,
     NEUTRAL_JOINT_ANGLES,
     ORIENTATION_COST,
+    POLICY_EXECUTION_RATE,
     POSITION_COST,
     POSTURE_COST_VECTOR,
+    PREDICTION_HORIZON_EXECUTION_RATIO,
     ROBOT_RATE,
     SOLVER_DAMPING_VALUE,
     SOLVER_NAME,
+    TARGETING_POSE_TIME_THRESHOLD,
     URDF_PATH,
     VISUALIZATION_RATE,
 )
@@ -61,20 +68,6 @@ from common.threads.quest_reader import quest_reader_thread
 from meta_quest_teleop.reader import MetaQuestReader
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
-
-POLICY_EXECUTION_RATE = 100.0  # Hz
-PREDICTION_HORIZON_EXECUTION_RATIO = (
-    0.8  # percentage of the prediction horizon that is executed
-)
-MAX_SAFETY_THRESHOLD = 20.0  # degrees
-MAX_ACTION_ERROR_THRESHOLD = 3.0  # degrees
-TARGET_MODE = (
-    PolicyState.ExecutionMode.TARGETING_TIME
-)  # "targeting_time" or "targeting_pose"
-TARGETING_POSE_TIME_THRESHOLD = 1.0  # seconds
-
-GRIPPER_NAME = "gripper"
-JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 
 
 def toggle_robot_enabled_status(
@@ -149,7 +142,7 @@ def run_policy(
     joint_positions_dict = {
         JOINT_NAMES[i]: angle for i, angle in enumerate(joint_angles_rad)
     }
-    gripper_open_amounts_dict = {GRIPPER_NAME: gripper_open_value}
+    gripper_open_amounts_dict = {GRIPPER_LOGGING_NAME: gripper_open_value}
 
     # Log joint positions parallel gripper open amounts and RGB image to NeuraCore
     try:
@@ -421,13 +414,13 @@ def policy_execution_thread(
 
                 # Send current gripper open value to robot (if available)
                 if (
-                    current_sync_point.parallel_gripper_open_amounts is not None
-                    and GRIPPER_NAME
+                    current_sync_point.parallel_gripper_open_amounts
+                    is not None
                     in current_sync_point.parallel_gripper_open_amounts.open_amounts
                 ):
                     current_gripper_open_value = (
                         current_sync_point.parallel_gripper_open_amounts.open_amounts[
-                            GRIPPER_NAME
+                            GRIPPER_LOGGING_NAME
                         ]
                     )
                     robot_controller.set_gripper_open_value(current_gripper_open_value)
@@ -647,7 +640,7 @@ if __name__ == "__main__":
 
     # Initialize policy state
     policy_state = PolicyState()
-    policy_state.set_execution_mode(TARGET_MODE)
+    policy_state.set_execution_mode(PolicyState.ExecutionMode.TARGETING_TIME)
 
     # Initialize shared state
     data_manager = DataManager()
@@ -734,7 +727,7 @@ if __name__ == "__main__":
         initial_prediction_ratio=PREDICTION_HORIZON_EXECUTION_RATIO,
         initial_policy_rate=POLICY_EXECUTION_RATE,
         initial_robot_rate=ROBOT_RATE,
-        initial_execution_mode=TARGET_MODE.value,
+        initial_execution_mode=PolicyState.ExecutionMode.TARGETING_TIME.value,
     )
     visualizer.add_toggle_robot_enabled_status_button()
     visualizer.add_homing_controls()
