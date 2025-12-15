@@ -8,6 +8,7 @@ to coordinate between multiple threads (data collection, IK solving, visualizati
 import threading
 import time
 from enum import Enum
+from typing import Callable
 
 import numpy as np
 
@@ -20,6 +21,7 @@ class RobotActivityState(Enum):
     ENABLED = "ENABLED"
     HOMING = "HOMING"
     DISABLED = "DISABLED"
+    POLICY_CONTROLLED = "POLICY_CONTROLLED"
 
 
 class ControllerState:
@@ -42,11 +44,11 @@ class ControllerState:
         self._filter: OneEuroFilterTransform | None = None
 
 
-class TeleopStateGroup:
+class TeleopState:
     """Teleop activation state - manages teleop start/stop."""
 
     def __init__(self) -> None:
-        """Initialize TeleopStateGroup with default values."""
+        """Initialize TeleopState with default values."""
         self._lock = threading.Lock()
 
         self.active: bool = False
@@ -63,6 +65,8 @@ class RobotState:
 
         self.joint_angles: np.ndarray | None = None
         self.end_effector_pose: np.ndarray | None = None
+        self.current_gripper_open_value: float | None = None
+        self.target_gripper_open_value: float | None = None
         self.activity_state: RobotActivityState = RobotActivityState.DISABLED
 
 
@@ -77,6 +81,16 @@ class IKState:
         self.target_pose: np.ndarray | None = None
         self.solve_time_ms: float = 0.0
         self.success: bool = True
+
+
+class CameraState:
+    """Camera state - RGB image, depth image, point cloud."""
+
+    def __init__(self) -> None:
+        """Initialize CameraState with default values."""
+        self._lock = threading.Lock()
+
+        self.rgb_image: np.ndarray | None = None
 
 
 class DataManager:
@@ -94,12 +108,44 @@ class DataManager:
         """Initialize DataManager with default values."""
         # State groups with individual locks
         self._controller_state = ControllerState()
-        self._teleop_state = TeleopStateGroup()
+        self._teleop_state = TeleopState()
         self._robot_state = RobotState()
         self._ik_state = IKState()
+        self._camera_state = CameraState()
 
-        # System state (lock-free for shutdown)
-        self._shutdown_event = threading.Event()  # Lock-free!
+        # System state
+        self._shutdown_event = threading.Event()
+
+        # Callback for state changes (RGB, target joints, current joints)
+        self._on_change_callback: Callable[[str, float, float], None] | None = None
+
+    def set_on_change_callback(
+        self, on_change_callback: Callable[[str, float, float], None]
+    ) -> None:
+        """Set on change callback (thread-safe)."""
+        self._on_change_callback = on_change_callback
+
+    # ============================================================================
+    # Camera State Methods
+    # ============================================================================
+
+    def get_rgb_image(self) -> np.ndarray | None:
+        """Get RGB image (thread-safe)."""
+        with self._camera_state._lock:
+            return (
+                self._camera_state.rgb_image.copy()
+                if self._camera_state.rgb_image is not None
+                else None
+            )
+
+    def set_rgb_image(self, image: np.ndarray) -> None:
+        """Set RGB image (thread-safe)."""
+        with self._camera_state._lock:
+            self._camera_state.rgb_image = image.copy()
+        if self._on_change_callback:
+            self._on_change_callback(
+                "log_rgb", self._camera_state.rgb_image.copy(), time.time()
+            )
 
     # ============================================================================
     # Controller State Methods
@@ -310,6 +356,12 @@ class DataManager:
         """
         with self._robot_state._lock:
             self._robot_state.joint_angles = angles.copy()
+        if self._on_change_callback:
+            self._on_change_callback(
+                "log_joint_positions",
+                self._robot_state.joint_angles.copy(),
+                time.time(),
+            )
 
     def get_current_end_effector_pose(self) -> np.ndarray | None:
         """Get current end effector pose (thread-safe).
@@ -332,6 +384,52 @@ class DataManager:
         """
         with self._robot_state._lock:
             self._robot_state.end_effector_pose = pose.copy()
+
+    def get_current_gripper_open_value(self) -> float | None:
+        """Get current gripper open value (thread-safe).
+
+        Returns:
+            Current gripper open value or None if not available
+        """
+        with self._robot_state._lock:
+            return (
+                self._robot_state.current_gripper_open_value
+                if self._robot_state.current_gripper_open_value is not None
+                else None
+            )
+
+    def set_current_gripper_open_value(self, value: float) -> None:
+        """Set current gripper open value (thread-safe).
+
+        Args:
+            value: float - current gripper open value
+        """
+        with self._robot_state._lock:
+            self._robot_state.current_gripper_open_value = value
+
+    def get_target_gripper_open_value(self) -> float | None:
+        """Get target gripper open value (thread-safe).
+
+        Returns:
+            Target gripper open value or None if not available
+        """
+        with self._robot_state._lock:
+            return self._robot_state.target_gripper_open_value
+
+    def set_target_gripper_open_value(self, value: float) -> None:
+        """Set target gripper open value (thread-safe).
+
+        Args:
+            value: float - target gripper open value
+        """
+        with self._robot_state._lock:
+            self._robot_state.target_gripper_open_value = value
+        if self._on_change_callback:
+            self._on_change_callback(
+                "log_parallel_gripper_open_amounts",
+                self._robot_state.target_gripper_open_value,
+                time.time(),
+            )
 
     # ============================================================================
     # IK State Methods
@@ -358,6 +456,12 @@ class DataManager:
         """
         with self._ik_state._lock:
             self._ik_state.target_joint_angles = angles.copy()
+        if self._on_change_callback:
+            self._on_change_callback(
+                "log_joint_target_positions",
+                self._ik_state.target_joint_angles.copy(),
+                time.time(),
+            )
 
     def set_target_pose(self, transform: np.ndarray | None) -> None:
         """Set target transform for visualization (thread-safe).

@@ -5,7 +5,7 @@ This module provides a clean interface for visualizing robot state using Viser,
 encapsulating all the repeated setup, GUI controls, and update logic.
 """
 
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import viser
@@ -27,23 +27,29 @@ class RobotVisualizer:
             urdf_path: Path to URDF file for robot visualization
         """
         # Initialize viser server
-        self.server = viser.ViserServer()
-        self.server.scene.add_grid("/ground", width=2, height=2, cell_size=0.1)
+        self._server = viser.ViserServer()
+        self._server.scene.add_grid("/ground", width=2, height=2, cell_size=0.1)
 
         # Load URDF for visualization
         urdf = yourdfpy.URDF.load(urdf_path)
-        self.urdf_vis = ViserUrdf(self.server, urdf, root_node_name="/robot")
+        self._urdf_vis = ViserUrdf(self._server, urdf, root_node_name="/robot_actual")
+
+        ghost_urdf = yourdfpy.URDF.load(urdf_path)
+        # Ghost robot with semi-transparent blue color to make it visually distinct
+        self._ghost_robot_urdf = ViserUrdf(
+            self._server,
+            ghost_urdf,
+            root_node_name="/robot_ghost",
+            mesh_color_override=(0.2, 0.4, 1.0, 0.25),  # Blue with 60% opacity
+        )
 
         # GUI handles (initialized as None, created on demand) - all private
         self._timing_handle = None
         self._joint_angles_handle = None
         self._robot_status_handle = None
-        self._safety_status_handle = None
         self._teleop_status_handle = None
         self._controller_status_handle = None
         self._gripper_status_handle = None
-        self._homing_status_handle = None
-        self._recording_status_handle = None
 
         # Pink parameter handles
         self._position_weight_handle = None
@@ -59,88 +65,118 @@ class RobotVisualizer:
         self._disable_robot_handle = None
         self._emergency_stop_handle = None
         self._go_home_button = None
+        self._toggle_robot_enabled_status_button = None
 
         # Teleop-specific handles
         self._grip_value_handle = None
         self._trigger_value_handle = None
 
         # Rate control handles
-        self._ik_solver_rate_handle = None
         self._controller_min_cutoff_handle = None
         self._controller_beta_handle = None
         self._controller_d_cutoff_handle = None
 
-        self._grip_threshold_handle = None
         self._translation_scale_handle = None
         self._rotation_scale_handle = None
-
-        # Recording handles
-        self._start_recording_button = None
-        self._stop_recording_button = None
 
         # Visualization handles
         self._controller_handle = None
         self._target_frame_handle = None
-        self._ik_target_handle = None
+
+        # Policy-related handles
+        self._policy_status_handle = None
+        self._prediction_ratio_handle = None
+        self._policy_execution_rate_handle = None
+        self._robot_rate_handle = None
+        self._execution_mode_dropdown = None
+        self._run_policy_button = None
+        self._start_policy_execution_button = None
+        self._run_and_start_policy_execution_button = None
+        self._play_policy_button = None
 
         # Internal state
         self._ema_timing = 0.001
 
     def add_basic_controls(self) -> None:
         """Add basic GUI controls (timing, joint angles)."""
-        self._timing_handle = self.server.gui.add_number(
+        self._timing_handle = self._server.gui.add_number(
             "IK Solve Time (ms)", 0.001, disabled=True
         )
-        self._joint_angles_handle = self.server.gui.add_text(
+        self._joint_angles_handle = self._server.gui.add_text(
             "Joint Angles", "Waiting for IK solution..."
         )
 
     def add_robot_status_controls(self) -> None:
         """Add robot status display controls."""
-        self._robot_status_handle = self.server.gui.add_text(
+        self._robot_status_handle = self._server.gui.add_text(
             "Robot Status", "Initializing..."
-        )
-
-    def add_safety_status_controls(self) -> None:
-        """Add safety status display controls."""
-        self._safety_status_handle = self.server.gui.add_text(
-            "Safety Status", "Monitoring..."
         )
 
     def add_teleop_controls(self) -> None:
         """Add teleoperation-specific controls."""
-        self._grip_value_handle = self.server.gui.add_number(
+        self._grip_value_handle = self._server.gui.add_number(
             "Grip Value", 0.0, disabled=True
         )
-        self._trigger_value_handle = self.server.gui.add_number(
+        self._trigger_value_handle = self._server.gui.add_number(
             "Trigger Value (Gripper)", 0.0, disabled=True
         )
-        self._teleop_status_handle = self.server.gui.add_text(
+        self._teleop_status_handle = self._server.gui.add_text(
             "Teleop Status", "Inactive"
         )
-        self._controller_status_handle = self.server.gui.add_text(
+        self._controller_status_handle = self._server.gui.add_text(
             "Controller Status", "Waiting..."
         )
 
     def add_gripper_status_controls(self) -> None:
         """Add gripper status display controls."""
-        self._gripper_status_handle = self.server.gui.add_text(
+        self._gripper_status_handle = self._server.gui.add_text(
             "Gripper Status", "Open (0%)"
         )
 
     def add_homing_controls(self) -> None:
         """Add homing controls."""
-        self._homing_status_handle = self.server.gui.add_text("Homing Status", "Idle")
-        self._go_home_button = self.server.gui.add_button("Go Home")
+        self._go_home_button = self._server.gui.add_button("Go Home")
 
     def add_robot_control_buttons(self) -> None:
         """Add robot control buttons (enable, disable, emergency stop).
 
         Note: For homing functionality, use add_homing_controls() instead.
         """
-        self._enable_robot_handle = self.server.gui.add_button("Enable Robot")
-        self._disable_robot_handle = self.server.gui.add_button("Disable Robot")
-        self._emergency_stop_handle = self.server.gui.add_button("Emergency Stop")
+        self._enable_robot_handle = self._server.gui.add_button("Enable Robot")
+        self._disable_robot_handle = self._server.gui.add_button("Disable Robot")
+        self._emergency_stop_handle = self._server.gui.add_button("Emergency Stop")
+
+    def add_toggle_robot_enabled_status_button(self) -> None:
+        """Add toggle robot enabled status button.
+
+        This creates a single button that toggles between "Enable Robot" and "Disable Robot"
+        based on the current robot state.
+        """
+        self._toggle_robot_enabled_status_button = self._server.gui.add_button(
+            "Enable Robot"
+        )
+
+    def update_toggle_robot_enabled_status(self, enabled: bool) -> None:
+        """Update toggle robot enabled status button label based on robot state.
+
+        Args:
+            enabled: Whether robot is currently enabled
+        """
+        if self._toggle_robot_enabled_status_button is not None:
+            self._toggle_robot_enabled_status_button.label = (
+                "Enable Robot" if not enabled else "Disable Robot"
+            )
+
+    def set_toggle_robot_enabled_status_callback(
+        self, callback: Callable[[], None]
+    ) -> None:
+        """Set callback for toggle robot enabled status button.
+
+        Args:
+            callback: Callback function to call when button is clicked
+        """
+        if self._toggle_robot_enabled_status_button is not None:
+            self._toggle_robot_enabled_status_button.on_click(lambda _: callback())
 
     def add_pink_parameter_controls(
         self,
@@ -163,29 +199,29 @@ class RobotVisualizer:
             solver_damping_value: Initial solver damping value
             posture_cost_vector: Initial posture cost vector (one value per joint)
         """
-        self._position_weight_handle = self.server.gui.add_number(
+        self._position_weight_handle = self._server.gui.add_number(
             "Position Weight", position_cost, min=0.0, max=10.0, step=0.1
         )
-        self._orientation_weight_handle = self.server.gui.add_number(
+        self._orientation_weight_handle = self._server.gui.add_number(
             "Orientation Weight", orientation_cost, min=0.0, max=1.0, step=0.01
         )
-        self._frame_task_gain_handle = self.server.gui.add_number(
+        self._frame_task_gain_handle = self._server.gui.add_number(
             "Frame Task Gain", frame_task_gain, min=0.0, max=10.0, step=0.1
         )
-        self._lm_damping_handle = self.server.gui.add_number(
+        self._lm_damping_handle = self._server.gui.add_number(
             "LM Damping", lm_damping, min=0.0, max=5.0, step=0.01
         )
-        self._damping_weight_handle = self.server.gui.add_number(
+        self._damping_weight_handle = self._server.gui.add_number(
             "Damping Weight", damping_cost, min=0.0, max=1.0, step=0.01
         )
-        self._solver_damping_value_handle = self.server.gui.add_number(
+        self._solver_damping_value_handle = self._server.gui.add_number(
             "Solver Damping Value", solver_damping_value, min=0.0, max=1.0, step=0.0001
         )
 
         # Posture cost controls (one per joint)
         self._posture_cost_handles = []
         for i in range(len(posture_cost_vector)):
-            handle = self.server.gui.add_number(
+            handle = self._server.gui.add_number(
                 f"Posture Cost J{i+1}",
                 posture_cost_vector[i],
                 min=0.0,
@@ -207,32 +243,22 @@ class RobotVisualizer:
             initial_beta: Initial speed coefficient
             initial_d_cutoff: Initial derivative cutoff frequency
         """
-        self._controller_min_cutoff_handle = self.server.gui.add_number(
+        self._controller_min_cutoff_handle = self._server.gui.add_number(
             "Controller Min Cutoff",
             initial_min_cutoff,
             min=0.01,
             max=10.0,
             step=0.01,
         )
-        self._controller_beta_handle = self.server.gui.add_number(
+        self._controller_beta_handle = self._server.gui.add_number(
             "Controller Beta", initial_beta, min=0.0, max=10.0, step=0.01
         )
-        self._controller_d_cutoff_handle = self.server.gui.add_number(
+        self._controller_d_cutoff_handle = self._server.gui.add_number(
             "Controller D Cutoff",
             initial_d_cutoff,
             min=0.01,
             max=10.0,
             step=0.01,
-        )
-
-    def add_grip_threshold_control(self, initial_threshold: float) -> None:
-        """Add grip threshold control.
-
-        Args:
-            initial_threshold: Initial grip threshold value (0.0-1.0)
-        """
-        self._grip_threshold_handle = self.server.gui.add_number(
-            "Grip Threshold", initial_threshold, min=0.0, max=1.0, step=0.05
         )
 
     def add_scaling_controls(
@@ -244,48 +270,20 @@ class RobotVisualizer:
             initial_translation_scale: Initial translation scale factor
             initial_rotation_scale: Initial rotation scale factor
         """
-        self._translation_scale_handle = self.server.gui.add_number(
+        self._translation_scale_handle = self._server.gui.add_number(
             "Translation Scale",
             initial_translation_scale,
             min=0.1,
             max=10.0,
             step=0.001,
         )
-        self._rotation_scale_handle = self.server.gui.add_number(
+        self._rotation_scale_handle = self._server.gui.add_number(
             "Rotation Scale", initial_rotation_scale, min=0.1, max=10.0, step=0.001
-        )
-
-    def add_recording_controls(self, record: bool = False) -> None:
-        """Add recording controls for neuracore."""
-        self._recording_status_handle = self.server.gui.add_text(
-            "Recording Status", "Not Recording" if not record else "Ready to Record"
-        )
-        if record:
-            self._start_recording_button = self.server.gui.add_button("Start Recording")
-            self._stop_recording_button = self.server.gui.add_button("Stop Recording")
-
-    def add_ik_target_controls(
-        self, initial_position: np.ndarray, initial_orientation: np.ndarray
-    ) -> None:
-        """Add interactive IK target controls.
-
-        Args:
-            initial_position: Initial target position (3D array)
-            initial_orientation: Initial target orientation (3x3 rotation matrix)
-        """
-        quat_xyzw = Rotation.from_matrix(initial_orientation).as_quat()
-        quat_wxyz = np.array([quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]])
-
-        self._ik_target_handle = self.server.scene.add_transform_controls(
-            "/ik_target",
-            scale=0.2,
-            position=tuple(initial_position),
-            wxyz=tuple(quat_wxyz),
         )
 
     def add_controller_visualization(self) -> None:
         """Add controller transform visualization."""
-        self._controller_handle = self.server.scene.add_transform_controls(
+        self._controller_handle = self._server.scene.add_transform_controls(
             "/controller",
             scale=0.15,
             position=(0, 0, 0),
@@ -294,7 +292,7 @@ class RobotVisualizer:
 
     def add_target_frame_visualization(self) -> None:
         """Add target/goal frame visualization."""
-        self._target_frame_handle = self.server.scene.add_frame(
+        self._target_frame_handle = self._server.scene.add_frame(
             "/target_goal", axes_length=0.1, axes_radius=0.003
         )
 
@@ -304,7 +302,7 @@ class RobotVisualizer:
         Args:
             joint_config: Joint angles in radians
         """
-        self.urdf_vis.update_cfg(joint_config)
+        self._urdf_vis.update_cfg(joint_config)
 
     def update_joint_angles_display(
         self, joint_config: np.ndarray, show_gripper: bool = False
@@ -351,15 +349,6 @@ class RobotVisualizer:
         """
         if self._robot_status_handle is not None:
             self._robot_status_handle.value = status
-
-    def update_safety_status(self, status: str) -> None:
-        """Update safety status display.
-
-        Args:
-            status: Status string to display
-        """
-        if self._safety_status_handle is not None:
-            self._safety_status_handle.value = status
 
     def update_teleop_status(self, active: bool) -> None:
         """Update teleop status display.
@@ -418,24 +407,6 @@ class RobotVisualizer:
 
         self._gripper_status_handle.value = status
 
-    def update_homing_status(self, status: str) -> None:
-        """Update homing status display.
-
-        Args:
-            status: Homing status string
-        """
-        if self._homing_status_handle is not None:
-            self._homing_status_handle.value = status
-
-    def update_recording_status(self, status: str) -> None:
-        """Update recording status display.
-
-        Args:
-            status: Recording status string
-        """
-        if self._recording_status_handle is not None:
-            self._recording_status_handle.value = status
-
     def update_controller_visualization(self, transform: np.ndarray | None) -> None:
         """Update controller transform visualization.
 
@@ -479,48 +450,6 @@ class RobotVisualizer:
 
         self._target_frame_handle.position = tuple(target_pos)
         self._target_frame_handle.wxyz = tuple(target_quat_wxyz)
-
-    def get_ik_target_pose(self) -> tuple[np.ndarray, np.ndarray]:
-        """Get IK target pose from GUI controls.
-
-        Returns:
-            Tuple of (position, rotation_matrix)
-
-        Raises:
-            ValueError: If IK target controls not initialized
-        """
-        if self._ik_target_handle is None:
-            raise ValueError("IK target controls not initialized")
-
-        target_position = np.array(self._ik_target_handle.position)
-        target_wxyz = np.array(self._ik_target_handle.wxyz)
-
-        # Convert wxyz quaternion to rotation matrix
-        target_rotation = Rotation.from_quat(
-            [target_wxyz[1], target_wxyz[2], target_wxyz[3], target_wxyz[0]]
-        )  # wxyz to xyzw
-        target_rotation_matrix = target_rotation.as_matrix()
-
-        return target_position, target_rotation_matrix
-
-    def set_ik_target_pose(self, position: np.ndarray, orientation: np.ndarray) -> None:
-        """Set IK target pose in GUI controls.
-
-        Args:
-            position: Target position (3D array)
-            orientation: Target orientation (3x3 rotation matrix)
-
-        Raises:
-            ValueError: If IK target controls not initialized
-        """
-        if self._ik_target_handle is None:
-            raise ValueError("IK target controls not initialized")
-
-        quat_xyzw = Rotation.from_matrix(orientation).as_quat()
-        quat_wxyz = np.array([quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]])
-
-        self._ik_target_handle.position = tuple(position)
-        self._ik_target_handle.wxyz = tuple(quat_wxyz)
 
     def get_pink_parameters(self) -> dict:
         """Get Pink IK parameters from GUI controls.
@@ -606,46 +535,6 @@ class RobotVisualizer:
             raise ValueError("Scaling controls not initialized")
         return self._rotation_scale_handle.value
 
-    def get_grip_threshold(self) -> float:
-        """Get grip threshold value from GUI.
-
-        Returns:
-            Grip threshold value
-
-        Raises:
-            ValueError: If grip threshold control has not been initialized
-        """
-        if self._grip_threshold_handle is None:
-            raise ValueError("Grip threshold control not initialized")
-        return self._grip_threshold_handle.value
-
-    def add_ik_solver_rate_control(self, initial_rate: float) -> None:
-        """Add IK solver rate control to GUI.
-
-        Args:
-            initial_rate: Initial IK solver rate in Hz
-        """
-        self._ik_solver_rate_handle = self.server.gui.add_number(
-            "IK Solver Rate (Hz)",
-            initial_rate,
-            min=1.0,
-            max=1000.0,
-            step=1.0,
-        )
-
-    def get_ik_solver_rate(self) -> float:
-        """Get IK solver rate from GUI.
-
-        Returns:
-            IK solver rate in Hz
-
-        Raises:
-            ValueError: If IK solver rate control has not been initialized
-        """
-        if self._ik_solver_rate_handle is None:
-            raise ValueError("IK solver rate control not initialized")
-        return self._ik_solver_rate_handle.value
-
     def set_grip_value(self, value: float) -> None:
         """Set grip value display.
 
@@ -685,145 +574,285 @@ class RobotVisualizer:
             raise ValueError("Joint angles control not initialized")
         self._joint_angles_handle.value = text
 
-    # Button state getters and setters
-    def is_enable_robot_pressed(self) -> bool:
-        """Check if enable robot button was pressed.
+    def update_ghost_robot_pose(self, joint_config: np.ndarray) -> None:
+        """Update ghost robot visualization from joint configuration.
+
+        Args:
+            joint_config: Joint angles in radians
+        """
+        if self._ghost_robot_urdf is not None:
+            self._ghost_robot_urdf.update_cfg(joint_config)
+
+    def update_ghost_robot_visibility(self, flag: bool) -> None:
+        """Update ghost robot visibility.
+
+        Args:
+            flag: Whether to show the ghost robot
+        """
+        if self._ghost_robot_urdf is not None:
+            self._ghost_robot_urdf.show_visual = flag
+
+    def add_policy_controls(
+        self,
+        initial_prediction_ratio: float = 0.8,
+        initial_policy_rate: float = 200.0,
+        initial_robot_rate: float = 200.0,
+        initial_execution_mode: str = "targeting_time",
+    ) -> None:
+        """Add policy-related GUI controls.
+
+        Args:
+            initial_prediction_ratio: Initial prediction horizon execution ratio (0.0-1.0)
+            initial_policy_rate: Initial policy execution rate in Hz
+            initial_robot_rate: Initial robot rate in Hz
+            initial_execution_mode: Initial execution mode ("targeting_time" or "targeting_pose")
+        """
+        self._policy_status_handle = self._server.gui.add_text(
+            "Policy Status", "Ready - Press Right Joystick to get prediction"
+        )
+
+        self._prediction_ratio_handle = self._server.gui.add_number(
+            "Prediction Horizon Execution Ratio",
+            initial_prediction_ratio,
+            min=0.0,
+            max=1.0,
+            step=0.01,
+        )
+
+        self._policy_execution_rate_handle = self._server.gui.add_number(
+            "Policy Execution Rate",
+            initial_policy_rate,
+            min=1.0,
+            max=200.0,
+            step=1.0,
+        )
+
+        self._robot_rate_handle = self._server.gui.add_number(
+            "Robot Rate",
+            initial_robot_rate,
+            min=1.0,
+            max=200.0,
+            step=1.0,
+        )
+
+        self._execution_mode_dropdown = self._server.gui.add_dropdown(
+            "Execution Mode",
+            options=["targeting_time", "targeting_pose"],
+            initial_value=initial_execution_mode,
+        )
+
+    def add_policy_buttons(self) -> None:
+        """Add policy control buttons."""
+        self._run_policy_button = self._server.gui.add_button("Run Policy")
+        self._start_policy_execution_button = self._server.gui.add_button(
+            "Start Policy Execution"
+        )
+        self._run_and_start_policy_execution_button = self._server.gui.add_button(
+            "Run and Execute Policy"
+        )
+        self._play_policy_button = self._server.gui.add_button("Play Policy")
+
+    def update_policy_status(self, status: str) -> None:
+        """Update policy status display.
+
+        Args:
+            status: Status string to display
+        """
+        if self._policy_status_handle is not None:
+            self._policy_status_handle.value = status
+
+    def get_prediction_ratio(self) -> float:
+        """Get prediction horizon execution ratio from GUI.
 
         Returns:
-            True if button was pressed, False otherwise
+            Prediction ratio (0.0-1.0)
 
         Raises:
-            ValueError: If enable robot button not initialized
+            ValueError: If policy controls not initialized
         """
-        if self._enable_robot_handle is None:
-            raise ValueError("Enable robot button not initialized")
-        return self._enable_robot_handle.value
+        if self._prediction_ratio_handle is None:
+            raise ValueError("Policy controls not initialized")
+        return self._prediction_ratio_handle.value
 
-    def reset_enable_robot_button(self) -> None:
-        """Reset enable robot button state.
-
-        Raises:
-            ValueError: If enable robot button not initialized
-        """
-        if self._enable_robot_handle is None:
-            raise ValueError("Enable robot button not initialized")
-        self._enable_robot_handle.value = False
-
-    def is_disable_robot_pressed(self) -> bool:
-        """Check if disable robot button was pressed.
+    def get_policy_execution_rate(self) -> float:
+        """Get policy execution rate from GUI.
 
         Returns:
-            True if button was pressed, False otherwise
+            Policy execution rate in Hz
 
         Raises:
-            ValueError: If disable robot button not initialized
+            ValueError: If policy controls not initialized
         """
-        if self._disable_robot_handle is None:
-            raise ValueError("Disable robot button not initialized")
-        return self._disable_robot_handle.value
+        if self._policy_execution_rate_handle is None:
+            raise ValueError("Policy controls not initialized")
+        return self._policy_execution_rate_handle.value
 
-    def reset_disable_robot_button(self) -> None:
-        """Reset disable robot button state.
-
-        Raises:
-            ValueError: If disable robot button not initialized
-        """
-        if self._disable_robot_handle is None:
-            raise ValueError("Disable robot button not initialized")
-        self._disable_robot_handle.value = False
-
-    def is_emergency_stop_pressed(self) -> bool:
-        """Check if emergency stop button was pressed.
+    def get_robot_rate(self) -> float:
+        """Get robot rate from GUI.
 
         Returns:
-            True if button was pressed, False otherwise
+            Robot rate in Hz
 
         Raises:
-            ValueError: If emergency stop button not initialized
+            ValueError: If policy controls not initialized
         """
-        if self._emergency_stop_handle is None:
-            raise ValueError("Emergency stop button not initialized")
-        return self._emergency_stop_handle.value
+        if self._robot_rate_handle is None:
+            raise ValueError("Policy controls not initialized")
+        return self._robot_rate_handle.value
 
-    def reset_emergency_stop_button(self) -> None:
-        """Reset emergency stop button state.
-
-        Raises:
-            ValueError: If emergency stop button not initialized
-        """
-        if self._emergency_stop_handle is None:
-            raise ValueError("Emergency stop button not initialized")
-        self._emergency_stop_handle.value = False
-
-    def is_go_home_pressed(self) -> bool:
-        """Check if go home button was pressed.
+    def get_execution_mode(self) -> str:
+        """Get execution mode from GUI.
 
         Returns:
-            True if button was pressed, False otherwise
+            Execution mode string ("targeting_time" or "targeting_pose")
 
         Raises:
-            ValueError: If go home button not initialized
+            ValueError: If policy controls not initialized
         """
-        if self._go_home_button is None:
-            raise ValueError("Go home button not initialized")
-        return self._go_home_button.value
+        if self._execution_mode_dropdown is None:
+            raise ValueError("Policy controls not initialized")
+        return self._execution_mode_dropdown.value
 
-    def reset_go_home_button(self) -> None:
-        """Reset go home button state.
-
-        Raises:
-            ValueError: If go home button not initialized
-        """
-        if self._go_home_button is None:
-            raise ValueError("Go home button not initialized")
-        self._go_home_button.value = False
-
-    def is_start_recording_pressed(self) -> bool:
-        """Check if start recording button was pressed.
+    def get_ghost_robot_visibility(self) -> bool:
+        """Get ghost robot visibility.
 
         Returns:
-            True if button was pressed, False otherwise
-
-        Raises:
-            ValueError: If start recording button not initialized
+            Whether the ghost robot is visible
         """
-        if self._start_recording_button is None:
-            raise ValueError("Start recording button not initialized")
-        return self._start_recording_button.value
+        if self._ghost_robot_urdf is not None:
+            return self._ghost_robot_urdf.show_visual
+        return False
 
-    def reset_start_recording_button(self) -> None:
-        """Reset start recording button state.
+    def set_run_policy_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for Run Policy button.
 
-        Raises:
-            ValueError: If start recording button not initialized
+        Args:
+            callback: Callback function to call when button is clicked
         """
-        if self._start_recording_button is None:
-            raise ValueError("Start recording button not initialized")
-        self._start_recording_button.value = False
+        if self._run_policy_button is not None:
+            self._run_policy_button.on_click(lambda _: callback())
 
-    def is_stop_recording_pressed(self) -> bool:
-        """Check if stop recording button was pressed.
+    def set_start_policy_execution_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for Execute Policy button.
 
-        Returns:
-            True if button was pressed, False otherwise
-
-        Raises:
-            ValueError: If stop recording button not initialized
+        Args:
+            callback: Callback function to call when button is clicked
         """
-        if self._stop_recording_button is None:
-            raise ValueError("Stop recording button not initialized")
-        return self._stop_recording_button.value
+        if self._start_policy_execution_button is not None:
+            self._start_policy_execution_button.on_click(lambda _: callback())
 
-    def reset_stop_recording_button(self) -> None:
-        """Reset stop recording button state.
+    def set_run_and_start_policy_execution_callback(
+        self, callback: Callable[[], None]
+    ) -> None:
+        """Set callback for Run and Execute Policy button.
 
-        Raises:
-            ValueError: If stop recording button not initialized
+        Args:
+            callback: Callback function to call when button is clicked
         """
-        if self._stop_recording_button is None:
-            raise ValueError("Stop recording button not initialized")
-        self._stop_recording_button.value = False
+        if self._run_and_start_policy_execution_button is not None:
+            self._run_and_start_policy_execution_button.on_click(lambda _: callback())
+
+    def set_play_policy_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for Play Policy button.
+
+        Args:
+            callback: Callback function to call when button is clicked
+        """
+        if self._play_policy_button is not None:
+            self._play_policy_button.on_click(lambda _: callback())
+
+    def set_execution_mode_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for execution mode dropdown.
+
+        Args:
+            callback: Callback function to call when dropdown value changes
+        """
+        if self._execution_mode_dropdown is not None:
+            self._execution_mode_dropdown.on_update(lambda _: callback())
+
+    def set_enable_robot_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for Enable Robot button.
+
+        Args:
+            callback: Callback function to call when button is clicked
+        """
+        if self._enable_robot_handle is not None:
+            self._enable_robot_handle.on_click(lambda _: callback())
+
+    def set_disable_robot_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for Disable Robot button.
+
+        Args:
+            callback: Callback function to call when button is clicked
+        """
+        if self._disable_robot_handle is not None:
+            self._disable_robot_handle.on_click(lambda _: callback())
+
+    def set_emergency_stop_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for Emergency Stop button.
+
+        Args:
+            callback: Callback function to call when button is clicked
+        """
+        if self._emergency_stop_handle is not None:
+            self._emergency_stop_handle.on_click(lambda _: callback())
+
+    def set_go_home_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for Go Home button.
+
+        Args:
+            callback: Callback function to call when button is clicked
+        """
+        if self._go_home_button is not None:
+            self._go_home_button.on_click(lambda _: callback())
+
+    def set_run_policy_button_disabled(self, disabled: bool) -> None:
+        """Set Run Policy button disabled state.
+
+        Args:
+            disabled: Whether button should be disabled
+        """
+        if self._run_policy_button is not None:
+            self._run_policy_button.disabled = disabled
+
+    def set_start_policy_execution_button_disabled(self, disabled: bool) -> None:
+        """Set Execute Policy button disabled state.
+
+        Args:
+            disabled: Whether button should be disabled
+        """
+        if self._start_policy_execution_button is not None:
+            self._start_policy_execution_button.disabled = disabled
+
+    def set_run_and_start_policy_execution_button_disabled(
+        self, disabled: bool
+    ) -> None:
+        """Set Run and Execute Policy button disabled state.
+
+        Args:
+            disabled: Whether button should be disabled
+        """
+        if self._run_and_start_policy_execution_button is not None:
+            self._run_and_start_policy_execution_button.disabled = disabled
+
+    def set_play_policy_button_disabled(self, disabled: bool) -> None:
+        """Set Play Policy button disabled state.
+
+        Args:
+            disabled: Whether button should be disabled
+        """
+        if self._play_policy_button is not None:
+            self._play_policy_button.disabled = disabled
+
+    def update_play_policy_button_status(self, active: bool) -> None:
+        """Update play policy button label based on active state.
+
+        Args:
+            active: Whether continuous play is currently active
+        """
+        if self._play_policy_button is not None:
+            self._play_policy_button.label = "Stop Policy" if active else "Play Policy"
 
     def stop(self) -> None:
         """Stop the visualizer server."""
-        self.server.stop()
+        self._server.stop()

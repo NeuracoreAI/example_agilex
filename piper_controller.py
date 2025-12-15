@@ -426,8 +426,6 @@ class PiperController:
     def move_to_home(self) -> bool:
         """Move robot to home position based on current control mode."""
         try:
-            print("🏠 Moving to home position...")
-
             # Ensure robot is enabled
             enable_start_time = time.time()
             while not self.piper.EnablePiper():
@@ -759,3 +757,27 @@ class PiperController:
                 "current_joint_angles": None,
                 "current_gripper_open_value": None,
             }
+
+    def is_robot_homed(self, tolerance_degrees: float = 2.0) -> bool:
+        """Check if robot is at home position within tolerance.
+
+        Args:
+            tolerance_degrees: Tolerance in degrees
+
+        Returns:
+            True if robot is at home position within tolerance, False otherwise
+        """
+        current_joints = self.get_current_joint_angles()
+        if current_joints is None:
+            return False
+        home_joints = self.HOME_JOINT_ANGLES
+        differences = np.abs(current_joints - home_joints)
+        return np.all(differences < tolerance_degrees)
+
+    def update_robot_rate(self, rate: float) -> None:
+        """Update the robot rate.
+
+        Args:
+            rate: The new robot rate in Hz
+        """
+        self.robot_rate = rate
