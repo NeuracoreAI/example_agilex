@@ -15,12 +15,6 @@ from pathlib import Path
 
 import neuracore as nc
 import numpy as np
-from neuracore_types import (
-    CameraData,
-    JointData,
-    ParallelGripperOpenAmountData,
-    SyncPoint,
-)
 
 # Add parent directory to path to import pink_ik_solver and piper_controller
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -30,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "meta_quest_teleop"))
 
 from common.configs import (
     CAMERA_FRAME_STREAMING_RATE,
+    CAMERA_LOGGING_NAME,
     CONTROLLER_BETA,
     CONTROLLER_D_CUTOFF,
     CONTROLLER_DATA_RATE,
@@ -146,32 +141,13 @@ def run_policy(
 
     # Log joint positions parallel gripper open amounts and RGB image to NeuraCore
     try:
-        # nc.log_joint_positions(joint_positions_dict)
-        # nc.log_gripper_data(open_amounts=gripper_open_amounts_dict)
-        # nc.log_rgb("camera", rgb_image)
-
-        # create neuracore sync point
-        timestamp = time.time()
-        joint_positions = JointData(
-            values=joint_positions_dict,
-            timestamp=timestamp,
-        )
-        parallel_gripper_open_amounts = ParallelGripperOpenAmountData(
-            open_amounts=gripper_open_amounts_dict,
-            timestamp=timestamp,
-        )
-        cam_data = CameraData(frame=rgb_image, timestamp=timestamp)
-        sync_point = SyncPoint(
-            joint_positions=joint_positions,
-            parallel_gripper_open_amounts=parallel_gripper_open_amounts,
-            rgb_images={"camera": cam_data},
-            timestamp=timestamp,
-        )
+        nc.log_joint_positions(joint_positions_dict)
+        nc.log_gripper_data(open_amounts=gripper_open_amounts_dict)
+        nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
 
         # Get policy prediction
         start_time = time.time()
-        # predicted_sync_points = policy.predict(timeout=5)
-        predicted_sync_points = policy.predict(sync_point, timeout=5)
+        predicted_sync_points = policy.predict(timeout=5)
         end_time = time.time()
         print(
             f"  ✓ Got {len(predicted_sync_points)} actions in {end_time - start_time:.3f} seconds"
@@ -630,12 +606,30 @@ if __name__ == "__main__":
     )
 
     # Load policy from either train run name or model path
+    model_input_order = {
+        "JOINT_POSITIONS": JOINT_NAMES,
+        "PARALLEL_GRIPPER_OPEN_AMOUNTS": [GRIPPER_LOGGING_NAME],
+        "RGB_IMAGES": [CAMERA_LOGGING_NAME],
+    }
+    model_output_order = {
+        "JOINT_TARGET_POSITIONS": JOINT_NAMES,
+        "PARALLEL_GRIPPER_OPEN_AMOUNTS": [GRIPPER_LOGGING_NAME],
+    }
     if args.train_run_name is not None:
         print(f"\n🤖 Loading policy from training run: {args.train_run_name}...")
-        policy = nc.policy(train_run_name=args.train_run_name)
+        policy = nc.policy(
+            train_run_name=args.train_run_name,
+            model_input_order=model_input_order,
+            model_output_order=model_output_order,
+        )
     else:
         print(f"\n🤖 Loading policy from model file: {args.model_path}...")
-        policy = nc.policy(model_file=args.model_path, device="cuda")
+        policy = nc.policy(
+            model_file=args.model_path,
+            device="cuda",
+            model_input_order=model_input_order,
+            model_output_order=model_output_order,
+        )
     print("  ✓ Policy loaded successfully")
 
     # Initialize policy state

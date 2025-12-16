@@ -84,16 +84,6 @@ def run_policy(
     nc.log_gripper_data(open_amounts=gripper_open_amounts_dict)
     nc.log_rgb("camera", rgb_image)
 
-    # timestamp = time.time()
-    # sync_point = SyncPoint(
-    #     joint_positions=JointData(values=joint_positions_dict, timestamp=timestamp),
-    #     parallel_gripper_open_amounts=ParallelGripperOpenAmountData(
-    #         open_amounts=gripper_open_amounts_dict, timestamp=timestamp
-    #     ),
-    #     rgb_images={"camera": CameraData(frame=rgb_image, timestamp=timestamp)},
-    #     timestamp=timestamp,
-    # )
-
     # Get policy prediction
     try:
         start_time = time.time()
