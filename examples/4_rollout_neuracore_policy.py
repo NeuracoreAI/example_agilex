@@ -657,6 +657,7 @@ if __name__ == "__main__":
         print(f"\n🤖 Loading policy from training run: {args.train_run_name}...")
         policy = nc.policy(
             train_run_name=args.train_run_name,
+            device="cuda",
             model_input_order=model_input_order,
             model_output_order=model_output_order,
         )
@@ -681,6 +682,8 @@ if __name__ == "__main__":
         CONTROLLER_BETA,
         CONTROLLER_D_CUTOFF,
     )
+    # Setting the target gripper so policy doesn't crash first time it runs
+    data_manager.set_target_gripper_open_value(1.0)
 
     # Initialize robot controller
     print("\n🤖 Initializing Piper robot controller...")
