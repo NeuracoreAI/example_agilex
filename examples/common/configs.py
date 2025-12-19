@@ -59,5 +59,5 @@ MAX_ACTION_ERROR_THRESHOLD = 3.0  # degrees
 TARGETING_POSE_TIME_THRESHOLD = 1.0  # seconds
 
 GRIPPER_LOGGING_NAME = "gripper"
-CAMERA_LOGGING_NAME = "camera"
+CAMERA_LOGGING_NAME = "rgb"
 JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]

@@ -15,6 +15,11 @@ from pathlib import Path
 
 import neuracore as nc
 import numpy as np
+from neuracore_types import (
+    BatchedJointData,
+    BatchedParallelGripperOpenAmountData,
+    DataType,
+)
 
 # Add parent directory to path to import pink_ik_solver and piper_controller
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -63,6 +68,34 @@ from common.threads.quest_reader import quest_reader_thread
 from meta_quest_teleop.reader import MetaQuestReader
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
+
+
+def convert_predictions_to_horizon_dict(predictions: dict) -> dict[str, list[float]]:
+    """Convert predictions dict to horizon dict format."""
+    horizon: dict[str, list[float]] = {}
+
+    # Extract joint target positions
+    if DataType.JOINT_TARGET_POSITIONS in predictions:
+        joint_data = predictions[DataType.JOINT_TARGET_POSITIONS]
+        for joint_name in JOINT_NAMES:
+            if joint_name in joint_data:
+                batched = joint_data[joint_name]
+                if isinstance(batched, BatchedJointData):
+                    # Extract values: (B, T, 1) -> list[float], taking B=0
+                    values = batched.value[0, :, 0].cpu().numpy().tolist()
+                    horizon[joint_name] = values
+
+    # Extract gripper open amounts
+    if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in predictions:
+        gripper_data = predictions[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
+        if GRIPPER_LOGGING_NAME in gripper_data:
+            batched = gripper_data[GRIPPER_LOGGING_NAME]
+            if isinstance(batched, BatchedParallelGripperOpenAmountData):
+                # Extract values: (B, T, 1) -> list[float], taking B=0
+                values = batched.open_amount[0, :, 0].cpu().numpy().tolist()
+                horizon[GRIPPER_LOGGING_NAME] = values
+
+    return horizon
 
 
 def toggle_robot_enabled_status(
@@ -120,8 +153,8 @@ def run_policy(
         print("⚠️  No current joint angles available")
         return False
 
-    # Get current gripper open value
-    gripper_open_value = data_manager.get_current_gripper_open_value()
+    # Get target gripper open value because this is how the policy was trained
+    gripper_open_value = data_manager.get_target_gripper_open_value()
     if gripper_open_value is None:
         print("⚠️  No gripper open value available")
         return False
@@ -137,34 +170,33 @@ def run_policy(
     joint_positions_dict = {
         JOINT_NAMES[i]: angle for i, angle in enumerate(joint_angles_rad)
     }
-    gripper_open_amounts_dict = {GRIPPER_LOGGING_NAME: gripper_open_value}
 
     # Log joint positions parallel gripper open amounts and RGB image to NeuraCore
     try:
         nc.log_joint_positions(joint_positions_dict)
-        nc.log_gripper_data(open_amounts=gripper_open_amounts_dict)
+        nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_open_value)
         nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
 
         # Get policy prediction
         start_time = time.time()
-        predicted_sync_points = policy.predict(timeout=5)
+        predictions = policy.predict(timeout=5)
+        prediction_horizon = convert_predictions_to_horizon_dict(predictions)
         end_time = time.time()
+        horizon_length = policy_state.get_prediction_horizon_length()
         print(
-            f"  ✓ Got {len(predicted_sync_points)} actions in {end_time - start_time:.3f} seconds"
+            f"  ✓ Got {horizon_length} actions in {end_time - start_time:.3f} seconds"
         )
 
         prediction_ratio = visualizer.get_prediction_ratio()
         policy_state.set_execution_ratio(prediction_ratio)
-
-        # Save full prediction horizon (clipping happens when locking for execution)
-        prediction_horizon_sync_points = predicted_sync_points
 
         # Set policy inputs
         policy_state.set_policy_rgb_image_input(rgb_image)
         policy_state.set_policy_state_input(current_joint_angles)
 
         # Store prediction horizon actions in policy state
-        policy_state.set_prediction_horizon_sync_points(prediction_horizon_sync_points)
+        policy_state.set_prediction_horizon(prediction_horizon)
+
         visualizer.update_ghost_robot_visibility(True)
         policy_state.set_ghost_robot_playing(True)
         policy_state.reset_ghost_action_index()
@@ -194,13 +226,14 @@ def start_policy_execution(
         return False
 
     # Get prediction horizon
-    prediction_horizon_sync_points = policy_state.get_prediction_horizon_sync_points()
-    prediction_horizon_length = len(prediction_horizon_sync_points)
+    prediction_horizon = policy_state.get_prediction_horizon()
+    prediction_horizon_length = policy_state.get_prediction_horizon_length()
     if prediction_horizon_length == 0:
         print("⚠️  No prediction horizon available. Make sure policy was run first.")
         return False
-    first_sync_point = prediction_horizon_sync_points[0]
-    if first_sync_point.joint_target_positions is None:
+
+    # Check that we have joint data for all joints
+    if not all(joint_name in prediction_horizon for joint_name in JOINT_NAMES):
         print("⚠️  First prediction in horizon has no joint targets")
         return False
 
@@ -209,15 +242,13 @@ def start_policy_execution(
     if current_joint_angles is None:
         print("⚠️  Cannot execute policy: No current joint angles available")
         return False
-
-    current_joint_target_positions_rad = first_sync_point.joint_target_positions.numpy(
-        order=JOINT_NAMES
+    # Get first action from horizon (index 0 for each joint)
+    current_joint_target_positions_rad = np.array(
+        [prediction_horizon[joint_name][0] for joint_name in JOINT_NAMES]
     )
-
     joint_differences = np.abs(
         current_joint_angles - np.degrees(current_joint_target_positions_rad)
     )
-
     if np.any(joint_differences > MAX_SAFETY_THRESHOLD):
         print("⚠️ Cannot execute policy: Robot too far from first action")
         print(f"   Differences: {[f'{d:.3f}' for d in joint_differences]}")
@@ -334,13 +365,10 @@ def policy_execution_thread(
             data_manager.get_robot_activity_state()
             == RobotActivityState.POLICY_CONTROLLED
         ):
-            locked_horizon_sync_points = (
-                policy_state.get_locked_prediction_horizon_sync_points()
-            )
+            locked_horizon = policy_state.get_locked_prediction_horizon()
             execution_index = policy_state.get_execution_action_index()
             locked_horizon_length = policy_state.get_locked_prediction_horizon_length()
             if execution_index < locked_horizon_length:
-                current_sync_point = locked_horizon_sync_points[execution_index]
                 # Check if previous goal was achieved, if any
                 current_joint_angles = data_manager.get_current_joint_angles()
                 if (
@@ -354,15 +382,16 @@ def policy_execution_thread(
                         time.time() - targeting_pose_start_time
                         < TARGETING_POSE_TIME_THRESHOLD
                     ):
-                        previous_sync_point = locked_horizon_sync_points[
-                            execution_index - 1
-                        ]
-                        if previous_sync_point.joint_target_positions is None:
+                        # Get previous action from horizon
+                        if not all(
+                            joint_name in locked_horizon for joint_name in JOINT_NAMES
+                        ):
                             break
-                        previous_joint_target_positions_rad = (
-                            previous_sync_point.joint_target_positions.numpy(
-                                order=JOINT_NAMES
-                            )
+                        previous_joint_target_positions_rad = np.array(
+                            [
+                                locked_horizon[joint_name][execution_index - 1]
+                                for joint_name in JOINT_NAMES
+                            ]
                         )
                         previous_joint_target_positions_deg = np.degrees(
                             previous_joint_target_positions_rad
@@ -375,11 +404,12 @@ def policy_execution_thread(
                         time.sleep(0.001)
 
                 # Send current action to robot (if available)
-                if current_sync_point.joint_target_positions is not None:
-                    current_joint_target_positions_rad = (
-                        current_sync_point.joint_target_positions.numpy(
-                            order=JOINT_NAMES
-                        )
+                if all(joint_name in locked_horizon for joint_name in JOINT_NAMES):
+                    current_joint_target_positions_rad = np.array(
+                        [
+                            locked_horizon[joint_name][execution_index]
+                            for joint_name in JOINT_NAMES
+                        ]
                     )
                     current_joint_target_positions_deg = np.degrees(
                         current_joint_target_positions_rad
@@ -389,16 +419,10 @@ def policy_execution_thread(
                     )
 
                 # Send current gripper open value to robot (if available)
-                if (
-                    current_sync_point.parallel_gripper_open_amounts
-                    is not None
-                    in current_sync_point.parallel_gripper_open_amounts.open_amounts
-                ):
-                    current_gripper_open_value = (
-                        current_sync_point.parallel_gripper_open_amounts.open_amounts[
-                            GRIPPER_LOGGING_NAME
-                        ]
-                    )
+                if GRIPPER_LOGGING_NAME in locked_horizon:
+                    current_gripper_open_value = locked_horizon[GRIPPER_LOGGING_NAME][
+                        execution_index
+                    ]
                     robot_controller.set_gripper_open_value(current_gripper_open_value)
 
                 # Update execution index
@@ -476,8 +500,8 @@ def update_visualization(
         visualizer.update_robot_pose(joint_config_rad)
 
     # Get policy state for ghost robot
-    prediction_horizon_sync_points = policy_state.get_prediction_horizon_sync_points()
-    prediction_horizon_length = len(prediction_horizon_sync_points)
+    prediction_horizon = policy_state.get_prediction_horizon()
+    prediction_horizon_length = policy_state.get_prediction_horizon_length()
     ghost_robot_playing = policy_state.get_ghost_robot_playing()
     ghost_action_index = policy_state.get_ghost_action_index()
 
@@ -515,10 +539,13 @@ def update_visualization(
         visualizer.update_ghost_robot_visibility(True)
         # Update ghost robot with prediction horizon actions (preview mode)
         if ghost_action_index < prediction_horizon_length:
-            ghost_sync_point = prediction_horizon_sync_points[ghost_action_index]
-            if ghost_sync_point.joint_target_positions is not None:
-                ghost_joint_config = ghost_sync_point.joint_target_positions.numpy(
-                    order=JOINT_NAMES
+            # Get ghost action from horizon
+            if all(joint_name in prediction_horizon for joint_name in JOINT_NAMES):
+                ghost_joint_config = np.array(
+                    [
+                        prediction_horizon[joint_name][ghost_action_index]
+                        for joint_name in JOINT_NAMES
+                    ]
                 )
                 visualizer.update_ghost_robot_pose(ghost_joint_config)
             next_index = (ghost_action_index + 1) % prediction_horizon_length
@@ -606,15 +633,26 @@ if __name__ == "__main__":
     )
 
     # Load policy from either train run name or model path
+    # NOTE: The model_output_order MUST match the exact order used during training
+    # This order is determined by the output_robot_data_spec in the training config.
+    # The order here should match the order in your training config's output_robot_data_spec.
     model_input_order = {
-        "JOINT_POSITIONS": JOINT_NAMES,
-        "PARALLEL_GRIPPER_OPEN_AMOUNTS": [GRIPPER_LOGGING_NAME],
-        "RGB_IMAGES": [CAMERA_LOGGING_NAME],
+        DataType.JOINT_POSITIONS: JOINT_NAMES,
+        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
+        DataType.RGB_IMAGES: [CAMERA_LOGGING_NAME],
     }
     model_output_order = {
-        "JOINT_TARGET_POSITIONS": JOINT_NAMES,
-        "PARALLEL_GRIPPER_OPEN_AMOUNTS": [GRIPPER_LOGGING_NAME],
+        DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
+        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
     }
+
+    print("\n📋 Model input order:")
+    for data_type, names in model_input_order.items():
+        print(f"  {data_type.name}: {names}")
+    print("\n📋 Model output order:")
+    for data_type, names in model_output_order.items():
+        print(f"  {data_type.name}: {names}")
+
     if args.train_run_name is not None:
         print(f"\n🤖 Loading policy from training run: {args.train_run_name}...")
         policy = nc.policy(
