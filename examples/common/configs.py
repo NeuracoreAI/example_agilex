@@ -48,3 +48,16 @@ NEUTRAL_JOINT_ANGLES = [-5.251, 21.356, -41.386, -4.323, 53.374, 0.0]
 
 # Posture task cost vector (one weight per joint)
 POSTURE_COST_VECTOR = [0.0, 0.0, 0.0, 0.05, 0.0, 0.0]
+
+
+POLICY_EXECUTION_RATE = 100.0  # Hz
+PREDICTION_HORIZON_EXECUTION_RATIO = (
+    0.8  # percentage of the prediction horizon that is executed
+)
+MAX_SAFETY_THRESHOLD = 20.0  # degrees
+MAX_ACTION_ERROR_THRESHOLD = 3.0  # degrees
+TARGETING_POSE_TIME_THRESHOLD = 1.0  # seconds
+
+GRIPPER_LOGGING_NAME = "gripper"
+CAMERA_LOGGING_NAME = "rgb"
+JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]

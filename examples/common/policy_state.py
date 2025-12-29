@@ -2,7 +2,6 @@
 
 import threading
 from enum import Enum
-from typing import Any
 
 import numpy as np
 
@@ -18,7 +17,8 @@ class PolicyState:
 
     def __init__(self) -> None:
         """Initialize PolicyState with default values."""
-        self._prediction_horizon_sync_points: list[Any] = []
+        # Prediction horizon stored as dict[str, list[float]] where keys are joint/gripper names
+        self._prediction_horizon: dict[str, list[float]] = {}
         self._prediction_horizon_lock = threading.Lock()
         self._execution_ratio: float = 1.0
 
@@ -33,7 +33,7 @@ class PolicyState:
 
         # Policy execution state
         self._policy_inputs_locked: bool = False
-        self._locked_prediction_horizon_sync_points: list[Any] = []
+        self._locked_prediction_horizon: dict[str, list[float]] = {}
         self._execution_action_index: int = 0
         self._execution_lock = threading.Lock()
 
@@ -46,17 +46,27 @@ class PolicyState:
     def get_prediction_horizon_length(self) -> int:
         """Get prediction horizon length (thread-safe)."""
         with self._prediction_horizon_lock:
-            return len(self._prediction_horizon_sync_points)
+            if not self._prediction_horizon:
+                return 0
+            # Get length from first list (all should have same length)
+            first_key = next(iter(self._prediction_horizon.keys()))
+            return len(self._prediction_horizon[first_key])
 
-    def get_prediction_horizon_sync_points(self) -> list[Any]:
-        """Get prediction horizon sync points (thread-safe)."""
+    def get_prediction_horizon(self) -> dict[str, list[float]]:
+        """Get prediction horizon (thread-safe)."""
         with self._prediction_horizon_lock:
-            return list(self._prediction_horizon_sync_points)
+            # Return a deep copy to prevent external modifications
+            return {
+                key: list(values) for key, values in self._prediction_horizon.items()
+            }
 
-    def set_prediction_horizon_sync_points(self, sync_points: list[Any]) -> None:
-        """Set prediction horizon sync points (thread-safe)."""
+    def set_prediction_horizon(self, horizon: dict[str, list[float]]) -> None:
+        """Set prediction horizon (thread-safe)."""
         with self._prediction_horizon_lock:
-            self._prediction_horizon_sync_points = list(sync_points)
+            # Store a deep copy to prevent external modifications
+            self._prediction_horizon = {
+                key: list(values) for key, values in horizon.items()
+            }
 
     def set_execution_ratio(self, ratio: float) -> None:
         """Set execution ratio used when locking prediction horizon."""
@@ -136,35 +146,52 @@ class PolicyState:
     def start_policy_execution(self) -> None:
         """Start policy execution by locking inputs and storing horizon (thread-safe)."""
         with self._prediction_horizon_lock:
-            source_sync_points = list(self._prediction_horizon_sync_points)
-            total = len(source_sync_points)
+            source_horizon = {
+                key: list(values) for key, values in self._prediction_horizon.items()
+            }
+            total = self.get_prediction_horizon_length()
             if total == 0:
-                locked_sync_points = []
+                locked_horizon = {}
             else:
                 num_actions = int(total * self._execution_ratio)
                 num_actions = max(1, min(num_actions, total))
-                locked_sync_points = source_sync_points[:num_actions]
+                # Slice each list in the horizon
+                locked_horizon = {
+                    key: values[:num_actions] for key, values in source_horizon.items()
+                }
         with self._execution_lock:
             self._policy_inputs_locked = True
             self._execution_action_index = 0
-            self._locked_prediction_horizon_sync_points = locked_sync_points
+            self._locked_prediction_horizon = locked_horizon
 
     def end_policy_execution(self) -> None:
         """Stop policy execution and unlock inputs (thread-safe)."""
         with self._execution_lock:
             self._policy_inputs_locked = False
-            self._locked_prediction_horizon_sync_points = []
+            self._locked_prediction_horizon = {}
             self._execution_action_index = 0
 
-    def get_locked_prediction_horizon_sync_points(self) -> list[Any]:
-        """Get locked prediction horizon sync points (thread-safe)."""
+    def get_locked_prediction_horizon(self) -> dict[str, list[float]]:
+        """Get locked prediction horizon (thread-safe)."""
         with self._execution_lock:
-            return list(self._locked_prediction_horizon_sync_points)
+            # Return a deep copy to prevent external modifications
+            return {
+                key: list(values)
+                for key, values in self._locked_prediction_horizon.items()
+            }
 
     def get_locked_prediction_horizon_length(self) -> int:
         """Get locked prediction horizon length (thread-safe)."""
         with self._execution_lock:
-            return len(self._locked_prediction_horizon_sync_points)
+            if not self._locked_prediction_horizon:
+                return 0
+            # Get length from first list (all should have same length)
+            first_key = next(iter(self._locked_prediction_horizon.keys()))
+            return len(self._locked_prediction_horizon[first_key])
+
+    def get_locked_prediction_horizon_sync_points(self) -> dict[str, list[float]]:
+        """Get locked prediction horizon (legacy method name, calls get_locked_prediction_horizon)."""
+        return self.get_locked_prediction_horizon()
 
     def get_execution_action_index(self) -> int:
         """Get current execution action index (thread-safe)."""
