@@ -149,7 +149,14 @@ class PolicyState:
             source_horizon = {
                 key: list(values) for key, values in self._prediction_horizon.items()
             }
-            total = self.get_prediction_horizon_length()
+            # Calculate length directly from source_horizon instead of calling get_prediction_horizon_length()
+            # which would try to acquire the same lock again (deadlock!)
+            if not source_horizon:
+                total = 0
+            else:
+                first_key = next(iter(source_horizon.keys()))
+                total = len(source_horizon[first_key])
+
             if total == 0:
                 locked_horizon = {}
             else:

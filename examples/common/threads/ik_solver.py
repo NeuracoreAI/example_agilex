@@ -54,6 +54,8 @@ def ik_solver_thread(data_manager: DataManager, ik_solver: PinkIKSolver) -> None
             teleop_active = data_manager.get_teleop_active()
 
             # Skip teleop-based IK if in POLICY_CONTROLLED state
+            # NOTE: During policy execution, the policy execution thread manages target joint angles
+            # We only update IK solver configuration to keep it in sync, but don't override targets
             if robot_activity_state == RobotActivityState.POLICY_CONTROLLED:
                 if current_joint_angles is not None:
                     ik_solver.set_configuration(np.radians(current_joint_angles))
@@ -61,7 +63,6 @@ def ik_solver_thread(data_manager: DataManager, ik_solver: PinkIKSolver) -> None
                         data_manager.get_current_end_effector_pose()
                     )
                     data_manager.set_target_pose(current_end_effector_pose)
-                    data_manager.set_target_joint_angles(current_joint_angles)
                     data_manager.set_ik_solve_time_ms(0.0)
                     data_manager.set_ik_success(True)
 
