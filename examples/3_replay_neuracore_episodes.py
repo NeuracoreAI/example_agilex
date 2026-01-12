@@ -21,7 +21,7 @@ def main() -> None:
     """Main function for replaying a Neuracore dataset on the Piper robot."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-name", type=str, required=True)
-    parser.add_argument("--frequency", type=int, required=False, default=1)
+    parser.add_argument("--frequency", type=int, required=False, default=0)
     parser.add_argument("--episode-index", type=int, required=False, default=0)
     args = parser.parse_args()
 
