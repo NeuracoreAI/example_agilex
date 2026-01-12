@@ -4,6 +4,7 @@ Caron
 columnspan
 dpitch
 dyaw
+fromarray
 Levenberg
 Marquardt
 mathbb
