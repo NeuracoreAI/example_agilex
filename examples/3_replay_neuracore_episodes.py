@@ -4,11 +4,18 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 import neuracore as nc
 import numpy as np
-from common.configs import NEUTRAL_JOINT_ANGLES, ROBOT_RATE
-from neuracore_types import DataType
+from common.configs import (
+    CAMERA_LOGGING_NAME,
+    GRIPPER_LOGGING_NAME,
+    JOINT_NAMES,
+    NEUTRAL_JOINT_ANGLES,
+    ROBOT_RATE,
+)
+from neuracore_types import DataType, RobotDataSpec, SynchronizedPoint
 from tqdm import tqdm
 
 # Add parent directory to path to piper_controller
@@ -21,7 +28,7 @@ def main() -> None:
     """Main function for replaying a Neuracore dataset on the Piper robot."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-name", type=str, required=True)
-    parser.add_argument("--frequency", type=int, required=False, default=0)
+    parser.add_argument("--frequency", type=int, required=False, default=100)
     parser.add_argument("--episode-index", type=int, required=False, default=0)
     args = parser.parse_args()
 
@@ -46,17 +53,27 @@ def main() -> None:
     print("\n🔍 Getting dataset from Neuracore...")
     dataset = nc.get_dataset(args.dataset_name)
 
+    # Build robot_data_spec for synchronization
+    print("\n🔁 Building robot data spec for synchronization...")
+    data_types_to_synchronize = [
+        DataType.JOINT_POSITIONS,
+        DataType.RGB_IMAGES,
+        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS,
+    ]
+    robot_data_spec: RobotDataSpec = {}
+    robot_ids_dataset = dataset.robot_ids
+    for robot_id in robot_ids_dataset:
+        data_type_to_names = dataset.get_full_data_spec(robot_id)
+        robot_data_spec[robot_id] = {
+            data_type: data_type_to_names[data_type]
+            for data_type in data_types_to_synchronize
+        }
+
     # Synchronize dataset
     print("\n🔁 Synchronizing dataset...")
     synced_dataset = dataset.synchronize(
         frequency=args.frequency,
-        data_types=[
-            DataType.JOINT_POSITIONS,
-            DataType.RGB_IMAGE,
-            DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS,
-        ],
-        prefetch_videos=True,
-        max_prefetch_workers=2,
+        robot_data_spec=robot_data_spec,
     )
 
     # Determine which episodes to play
@@ -102,14 +119,32 @@ def main() -> None:
             parallel_gripper_open_amounts = []
             joint_positions = []
             for step in tqdm(episode, desc=f"Collecting episode {episode_idx}"):
-                joint_positions.append(list(step.joint_positions.values.values()))
-                parallel_gripper_open_amounts.append(
-                    step.parallel_gripper_open_amounts.open_amounts["gripper"]
-                )
-                if step.rgb_images is not None:
-                    for _, cam_data in step.rgb_images.items():
-                        rgb_images.append(cam_data.frame)
-                        break
+                step = cast(SynchronizedPoint, step)
+
+                # Extract joint positions
+                joint_positions_dict = {}
+                if DataType.JOINT_POSITIONS in step.data:
+                    joint_data = step.data[DataType.JOINT_POSITIONS]
+                    for joint_name in JOINT_NAMES:
+                        if joint_name in joint_data:
+                            joint_positions_dict[joint_name] = joint_data[
+                                joint_name
+                            ].value
+                joint_positions.append([joint_positions_dict[jn] for jn in JOINT_NAMES])
+
+                # Extract gripper
+                gripper_value = 0.0
+                if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in step.data:
+                    gripper_data = step.data[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
+                    if GRIPPER_LOGGING_NAME in gripper_data:
+                        gripper_value = gripper_data[GRIPPER_LOGGING_NAME].open_amount
+                parallel_gripper_open_amounts.append(gripper_value)
+
+                # Extract RGB image (just store first one for compatibility)
+                if DataType.RGB_IMAGES in step.data:
+                    rgb_data = step.data[DataType.RGB_IMAGES]
+                    if CAMERA_LOGGING_NAME in rgb_data:
+                        rgb_images.append(rgb_data[CAMERA_LOGGING_NAME].frame)
 
             joint_positions = np.degrees(np.array(joint_positions))
             parallel_gripper_open_amounts = np.array(parallel_gripper_open_amounts)
