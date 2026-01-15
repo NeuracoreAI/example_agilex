@@ -147,6 +147,8 @@ def run_policy(
     visualizer: RobotVisualizer,
 ) -> bool:
     """Handle Run Policy button press to capture state and get policy prediction."""
+    print("Running policy...")
+
     # Get current joint positions
     current_joint_angles = data_manager.get_current_joint_angles()
     if current_joint_angles is None:
@@ -213,6 +215,8 @@ def start_policy_execution(
     data_manager: DataManager, policy_state: PolicyState
 ) -> bool:
     """Handle Execute Policy button press to start policy execution."""
+    print("Starting policy execution...")
+
     # Check if policy execution is already active
     if (
         data_manager.get_robot_activity_state() == RobotActivityState.POLICY_CONTROLLED
@@ -265,6 +269,15 @@ def start_policy_execution(
 
     # Lock policy inputs and start execution
     policy_state.start_policy_execution()
+
+    # Verify locked horizon was created successfully
+    locked_horizon_length = policy_state.get_locked_prediction_horizon_length()
+    if locked_horizon_length == 0:
+        print("⚠️  Failed to lock prediction horizon - horizon is empty")
+        policy_state.end_policy_execution()
+        return False
+
+    print(f"✓ Starting policy execution with {locked_horizon_length} actions")
 
     # Change robot state to POLICY_CONTROLLED
     data_manager.set_robot_activity_state(RobotActivityState.POLICY_CONTROLLED)
@@ -358,6 +371,9 @@ def policy_execution_thread(
 ) -> None:
     """Policy execution thread."""
     dt_execution = 1.0 / POLICY_EXECUTION_RATE
+    # Throttle visualization updates to ~30Hz to avoid overwhelming Viser
+    last_visualization_update = 0.0
+    visualization_update_interval = 1.0 / 30.0  # 30 Hz
     while True:
         start_time = time.time()
 
@@ -368,6 +384,14 @@ def policy_execution_thread(
             locked_horizon = policy_state.get_locked_prediction_horizon()
             execution_index = policy_state.get_execution_action_index()
             locked_horizon_length = policy_state.get_locked_prediction_horizon_length()
+
+            # Debug output on first execution step
+            if execution_index == 0 and locked_horizon_length > 0:
+                print(
+                    f"🔄 Policy execution started: {locked_horizon_length} actions, "
+                    f"robot enabled: {robot_controller.is_robot_enabled()}"
+                )
+
             if execution_index < locked_horizon_length:
                 # Check if previous goal was achieved, if any
                 current_joint_angles = data_manager.get_current_joint_angles()
@@ -414,9 +438,20 @@ def policy_execution_thread(
                     current_joint_target_positions_deg = np.degrees(
                         current_joint_target_positions_rad
                     )
-                    robot_controller.set_target_joint_angles(
+                    # Update data_manager with target joint angles for visualization
+                    data_manager.set_target_joint_angles(
                         current_joint_target_positions_deg
                     )
+
+                    # Verify robot controller is enabled before sending commands
+                    if robot_controller.is_robot_enabled():
+                        robot_controller.set_target_joint_angles(
+                            current_joint_target_positions_deg
+                        )
+                    else:
+                        print(
+                            f"⚠️  Robot controller not enabled, skipping command at index {execution_index}"
+                        )
 
                 # Send current gripper open value to robot (if available)
                 if GRIPPER_LOGGING_NAME in locked_horizon:
@@ -478,8 +513,12 @@ def policy_execution_thread(
                     data_manager, policy_state, visualizer, "Policy execution completed"
                 )
 
-        # NOTE: this was added here to prevent OpenGL in visualization from blocking CUDA for policy execution
-        update_visualization(data_manager, policy_state, visualizer)
+        # NOTE: Update visualization less frequently to avoid blocking
+        # Throttle visualization updates to ~30Hz to prevent overwhelming Viser server
+        current_time = time.time()
+        if current_time - last_visualization_update >= visualization_update_interval:
+            update_visualization(data_manager, policy_state, visualizer)
+            last_visualization_update = current_time
 
         dt_execution = 1.0 / visualizer.get_policy_execution_rate()
         elapsed = time.time() - start_time

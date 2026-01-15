@@ -72,29 +72,24 @@ def convert_predictions_to_horizon_dict(predictions: dict) -> dict[str, list[flo
     return horizon
 
 
-def run_policy(
-    data_manager: DataManager,
-    policy: nc.policy,
-    policy_state: PolicyState,
-) -> bool:
-    """Run policy and get prediction horizon."""
-    # Get current state
+def log_current_state(data_manager: DataManager) -> None:
+    """Log current state to NeuraCore."""
     current_joint_angles = data_manager.get_current_joint_angles()
     if current_joint_angles is None:
         print("⚠️  No joint angles available")
-        return False
+        return
 
     # Get target gripper open value because this is how the policy was trained
     gripper_open_value = data_manager.get_target_gripper_open_value()
     if gripper_open_value is None:
         print("⚠️  No gripper open value available")
-        return False
+        return
 
     # Get current RGB image
     rgb_image = data_manager.get_rgb_image()
     if rgb_image is None:
         print("⚠️  No RGB image available")
-        return False
+        return
 
     # Prepare data for NeuraCore logging
     joint_angles_rad = np.radians(current_joint_angles)
@@ -106,6 +101,16 @@ def run_policy(
     nc.log_joint_positions(joint_positions_dict)
     nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_open_value)
     nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
+
+
+def run_policy(
+    data_manager: DataManager,
+    policy: nc.policy,
+    policy_state: PolicyState,
+) -> bool:
+    """Run policy and get prediction horizon."""
+    # Log current state
+    log_current_state(data_manager)
 
     # Get policy prediction
     try:
@@ -143,6 +148,8 @@ def execute_horizon(
     dt = 1.0 / POLICY_EXECUTION_RATE
 
     for i in range(horizon_length):
+        start_time = time.time()
+
         # Send current action to robot (if available)
         if all(joint_name in locked_horizon for joint_name in JOINT_NAMES):
             current_joint_target_positions_rad = np.array(
@@ -158,8 +165,12 @@ def execute_horizon(
             current_gripper_open_value = locked_horizon[GRIPPER_LOGGING_NAME][i]
             robot_controller.set_gripper_open_value(current_gripper_open_value)
 
+        # Log current state for visualization
+        log_current_state(data_manager)
+
         # Sleep to maintain rate
-        time.sleep(dt)
+        elapsed = time.time() - start_time
+        time.sleep(max(0, dt - elapsed))
 
     # End execution
     policy_state.end_policy_execution()
@@ -241,6 +252,7 @@ if __name__ == "__main__":
 
     # Initialize state
     data_manager = DataManager()
+    data_manager.set_target_gripper_open_value(1.0)
     policy_state = PolicyState()
 
     # Initialize robot controller
