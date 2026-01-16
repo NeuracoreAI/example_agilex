@@ -28,7 +28,7 @@ def main() -> None:
     """Main function for replaying a Neuracore dataset on the Piper robot."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-name", type=str, required=True)
-    parser.add_argument("--frequency", type=int, required=False, default=100)
+    parser.add_argument("--frequency", type=int, required=True)
     parser.add_argument("--episode-index", type=int, required=False, default=0)
     args = parser.parse_args()
 
@@ -57,8 +57,10 @@ def main() -> None:
     print("\n🔁 Building robot data spec for synchronization...")
     data_types_to_synchronize = [
         DataType.JOINT_POSITIONS,
+        DataType.JOINT_TARGET_POSITIONS,
         DataType.RGB_IMAGES,
         DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS,
+        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS,
     ]
     robot_data_spec: RobotDataSpec = {}
     robot_ids_dataset = dataset.robot_ids
@@ -123,8 +125,8 @@ def main() -> None:
 
                 # Extract joint positions
                 joint_positions_dict = {}
-                if DataType.JOINT_POSITIONS in step.data:
-                    joint_data = step.data[DataType.JOINT_POSITIONS]
+                if DataType.JOINT_TARGET_POSITIONS in step.data:
+                    joint_data = step.data[DataType.JOINT_TARGET_POSITIONS]
                     for joint_name in JOINT_NAMES:
                         if joint_name in joint_data:
                             joint_positions_dict[joint_name] = joint_data[
@@ -134,8 +136,10 @@ def main() -> None:
 
                 # Extract gripper
                 gripper_value = 0.0
-                if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in step.data:
-                    gripper_data = step.data[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
+                if DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in step.data:
+                    gripper_data = step.data[
+                        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS
+                    ]
                     if GRIPPER_LOGGING_NAME in gripper_data:
                         gripper_value = gripper_data[GRIPPER_LOGGING_NAME].open_amount
                 parallel_gripper_open_amounts.append(gripper_value)

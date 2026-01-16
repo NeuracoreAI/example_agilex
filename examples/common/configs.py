@@ -44,7 +44,7 @@ JOINT_STATE_STREAMING_RATE = 100.0  # Data collection rate for neuracore
 CAMERA_FRAME_STREAMING_RATE = 60.0  # Data collection rate for camera frame
 
 # # Initial neutral pose for robot (degrees)
-NEUTRAL_JOINT_ANGLES = [-5.251, 21.356, -41.386, -4.323, 53.374, 0.0]
+NEUTRAL_JOINT_ANGLES = [-1.003, 80.167, -51.064, -4.127, 16.548, 2.619]
 
 # Posture task cost vector (one weight per joint)
 POSTURE_COST_VECTOR = [0.0, 0.0, 0.0, 0.05, 0.0, 0.0]

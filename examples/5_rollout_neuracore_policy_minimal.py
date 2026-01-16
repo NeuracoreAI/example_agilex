@@ -60,8 +60,8 @@ def convert_predictions_to_horizon_dict(predictions: dict) -> dict[str, list[flo
                     horizon[joint_name] = values
 
     # Extract gripper open amounts
-    if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in predictions:
-        gripper_data = predictions[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
+    if DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in predictions:
+        gripper_data = predictions[DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS]
         if GRIPPER_LOGGING_NAME in gripper_data:
             batched = gripper_data[GRIPPER_LOGGING_NAME]
             if isinstance(batched, BatchedParallelGripperOpenAmountData):
@@ -79,8 +79,8 @@ def log_current_state(data_manager: DataManager) -> None:
         print("⚠️  No joint angles available")
         return
 
-    # Get target gripper open value because this is how the policy was trained
-    gripper_open_value = data_manager.get_target_gripper_open_value()
+    # Get current gripper open value
+    gripper_open_value = data_manager.get_current_gripper_open_value()
     if gripper_open_value is None:
         print("⚠️  No gripper open value available")
         return
@@ -94,7 +94,7 @@ def log_current_state(data_manager: DataManager) -> None:
     # Prepare data for NeuraCore logging
     joint_angles_rad = np.radians(current_joint_angles)
     joint_positions_dict = {
-        JOINT_NAMES[i]: angle for i, angle in enumerate(joint_angles_rad)
+        joint_name: angle for joint_name, angle in zip(JOINT_NAMES, joint_angles_rad)
     }
 
     # Log joint positions, parallel gripper open amounts, and RGB image to NeuraCore
@@ -123,8 +123,6 @@ def run_policy(
         horizon_length = policy_state.get_prediction_horizon_length()
         print(f"✓ Got {horizon_length} actions in {elapsed:.3f}s")
 
-        # Set execution ratio and save prediction horizon
-        policy_state.set_execution_ratio(PREDICTION_HORIZON_EXECUTION_RATIO)
         policy_state.set_prediction_horizon(prediction_horizon)
         return True
 
@@ -138,6 +136,7 @@ def execute_horizon(
     data_manager: DataManager,
     policy_state: PolicyState,
     robot_controller: PiperController,
+    frequency: int,
 ) -> None:
     """Execute prediction horizon."""
     policy_state.start_policy_execution()
@@ -145,7 +144,7 @@ def execute_horizon(
 
     locked_horizon = policy_state.get_locked_prediction_horizon()
     horizon_length = policy_state.get_locked_prediction_horizon_length()
-    dt = 1.0 / POLICY_EXECUTION_RATE
+    dt = 1.0 / frequency
 
     for i in range(horizon_length):
         start_time = time.time()
@@ -162,8 +161,8 @@ def execute_horizon(
 
         # Send current gripper open value to robot (if available)
         if GRIPPER_LOGGING_NAME in locked_horizon:
-            current_gripper_open_value = locked_horizon[GRIPPER_LOGGING_NAME][i]
-            robot_controller.set_gripper_open_value(current_gripper_open_value)
+            current_gripper_target_open_value = locked_horizon[GRIPPER_LOGGING_NAME][i]
+            robot_controller.set_gripper_open_value(current_gripper_target_open_value)
 
         # Log current state for visualization
         log_current_state(data_manager)
@@ -190,6 +189,18 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Path to local model file to load policy from. Mutually exclusive with --train-run-name.",
+    )
+    parser.add_argument(
+        "--frequency",
+        type=int,
+        default=POLICY_EXECUTION_RATE,
+        help="Frequency of policy execution",
+    )
+    parser.add_argument(
+        "--execution-ratio",
+        type=float,
+        default=PREDICTION_HORIZON_EXECUTION_RATIO,
+        help="Execution ratio of the policy",
     )
     args = parser.parse_args()
 
@@ -223,7 +234,7 @@ if __name__ == "__main__":
     }
     model_output_order = {
         DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
-        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
+        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
     }
 
     print("\n📋 Model input order:")
@@ -252,8 +263,8 @@ if __name__ == "__main__":
 
     # Initialize state
     data_manager = DataManager()
-    data_manager.set_target_gripper_open_value(1.0)
     policy_state = PolicyState()
+    policy_state.set_execution_ratio(args.execution_ratio)
 
     # Initialize robot controller
     print("\n🤖 Initializing robot controller...")
@@ -318,7 +329,9 @@ if __name__ == "__main__":
                 continue
 
             # Execute horizon
-            execute_horizon(data_manager, policy_state, robot_controller)
+            execute_horizon(
+                data_manager, policy_state, robot_controller, args.frequency
+            )
 
     except KeyboardInterrupt:
         print("\n\n👋 Interrupt received - shutting down...")
