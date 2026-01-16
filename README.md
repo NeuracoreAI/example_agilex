@@ -27,11 +27,12 @@ conda env create -f environment.yaml
 conda activate piper-teleop
 ```
 
-### 3. Install Meta Quest Teleop Package
+### 3. Clone and Install Meta Quest Teleop Package
 
-Install the Meta Quest teleoperation package:
+Clone the Meta Quest teleoperation repository inside this example directory and install it:
 
 ```bash
+git clone https://github.com/NeuracoreAI/meta_quest_teleop.git
 cd meta_quest_teleop
 pip install -e .
 cd ..
@@ -232,7 +233,13 @@ example_agilex/
 
 - Ensure conda environment is activated: `conda activate piper-teleop`
 - Verify all dependencies are installed: `conda env update -f environment.yaml`
-- Check that `meta_quest_teleop` is installed: `pip install -e meta_quest_teleop/`
+- Check that `meta_quest_teleop` is cloned and installed: 
+  ```bash
+  git clone https://github.com/NeuracoreAI/meta_quest_teleop.git
+  cd meta_quest_teleop
+  pip install -e .
+  cd ..
+  ```
 
 ### Robot Communication Issues
 
