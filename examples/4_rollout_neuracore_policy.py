@@ -86,8 +86,8 @@ def convert_predictions_to_horizon_dict(predictions: dict) -> dict[str, list[flo
                     horizon[joint_name] = values
 
     # Extract gripper open amounts
-    if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in predictions:
-        gripper_data = predictions[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
+    if DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in predictions:
+        gripper_data = predictions[DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS]
         if GRIPPER_LOGGING_NAME in gripper_data:
             batched = gripper_data[GRIPPER_LOGGING_NAME]
             if isinstance(batched, BatchedParallelGripperOpenAmountData):
@@ -155,8 +155,8 @@ def run_policy(
         print("⚠️  No current joint angles available")
         return False
 
-    # Get target gripper open value because this is how the policy was trained
-    gripper_open_value = data_manager.get_target_gripper_open_value()
+    # Get current gripper open value
+    gripper_open_value = data_manager.get_current_gripper_open_value()
     if gripper_open_value is None:
         print("⚠️  No gripper open value available")
         return False
@@ -170,7 +170,7 @@ def run_policy(
     # Prepare data for NeuraCore logging
     joint_angles_rad = np.radians(current_joint_angles)
     joint_positions_dict = {
-        JOINT_NAMES[i]: angle for i, angle in enumerate(joint_angles_rad)
+        joint_name: angle for joint_name, angle in zip(JOINT_NAMES, joint_angles_rad)
     }
 
     # Log joint positions parallel gripper open amounts and RGB image to NeuraCore
@@ -455,10 +455,12 @@ def policy_execution_thread(
 
                 # Send current gripper open value to robot (if available)
                 if GRIPPER_LOGGING_NAME in locked_horizon:
-                    current_gripper_open_value = locked_horizon[GRIPPER_LOGGING_NAME][
-                        execution_index
-                    ]
-                    robot_controller.set_gripper_open_value(current_gripper_open_value)
+                    current_gripper_target_open_value = locked_horizon[
+                        GRIPPER_LOGGING_NAME
+                    ][execution_index]
+                    robot_controller.set_gripper_open_value(
+                        current_gripper_target_open_value
+                    )
 
                 # Update execution index
                 policy_state.increment_execution_action_index()
@@ -682,7 +684,7 @@ if __name__ == "__main__":
     }
     model_output_order = {
         DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
-        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
+        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
     }
 
     print("\n📋 Model input order:")
@@ -721,8 +723,6 @@ if __name__ == "__main__":
         CONTROLLER_BETA,
         CONTROLLER_D_CUTOFF,
     )
-    # Setting the target gripper so policy doesn't crash first time it runs
-    data_manager.set_target_gripper_open_value(1.0)
 
     # Initialize robot controller
     print("\n🤖 Initializing Piper robot controller...")

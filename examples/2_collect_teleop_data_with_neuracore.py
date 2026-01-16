@@ -35,7 +35,9 @@ from common.configs import (
     DAMPING_COST,
     FRAME_TASK_GAIN,
     GRIPPER_FRAME_NAME,
+    GRIPPER_LOGGING_NAME,
     IK_SOLVER_RATE,
+    JOINT_NAMES,
     JOINT_STATE_STREAMING_RATE,
     LM_DAMPING,
     NEUTRAL_JOINT_ANGLES,
@@ -104,18 +106,25 @@ def neuracore_logging_worker(queue: Queue, worker_id: int) -> None:
                 if function_name == "log_joint_positions":
                     data_value = np.radians(data_value)
                     data_dict = {
-                        f"joint{i+1}": angle for i, angle in enumerate(data_value)
+                        joint_name: angle
+                        for joint_name, angle in zip(JOINT_NAMES, data_value)
                     }
                     nc.log_joint_positions(data_dict, timestamp=timestamp)
                 elif function_name == "log_joint_target_positions":
                     data_value = np.radians(data_value)
                     data_dict = {
-                        f"joint{i+1}": angle for i, angle in enumerate(data_value)
+                        joint_name: angle
+                        for joint_name, angle in zip(JOINT_NAMES, data_value)
                     }
                     nc.log_joint_target_positions(data_dict, timestamp=timestamp)
                 elif function_name == "log_parallel_gripper_open_amounts":
-                    data_dict = {"gripper": data_value}
+                    data_dict = {GRIPPER_LOGGING_NAME: data_value}
                     nc.log_parallel_gripper_open_amounts(data_dict, timestamp=timestamp)
+                elif function_name == "log_parallel_gripper_target_open_amounts":
+                    data_dict = {GRIPPER_LOGGING_NAME: data_value}
+                    nc.log_parallel_gripper_target_open_amounts(
+                        data_dict, timestamp=timestamp
+                    )
                 elif function_name == "log_rgb":
                     camera_name = "rgb"
                     image_array = data_value
@@ -327,7 +336,12 @@ if __name__ == "__main__":
 
     # Initialize Meta Quest reader
     print("\n🎮 Initializing Meta Quest reader...")
-    quest_reader = MetaQuestReader(ip_address=args.ip_address, port=5555, run=True)
+    quest_reader = MetaQuestReader(
+        ip_address=args.ip_address,
+        port=5555,
+        axis_mask=[1, 1, 1, 0, 1, 0],
+        run=True,
+    )
 
     # Register button callbacks (after state and robot_controller are initialized)
     quest_reader.on("button_a_pressed", on_button_a_pressed)

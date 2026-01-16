@@ -406,6 +406,12 @@ class DataManager:
         """
         with self._robot_state._lock:
             self._robot_state.current_gripper_open_value = value
+        if self._on_change_callback:
+            self._on_change_callback(
+                "log_parallel_gripper_open_amounts",
+                value,
+                time.time(),
+            )
 
     def get_target_gripper_open_value(self) -> float | None:
         """Get target gripper open value (thread-safe).
@@ -426,7 +432,7 @@ class DataManager:
             self._robot_state.target_gripper_open_value = value
         if self._on_change_callback:
             self._on_change_callback(
-                "log_parallel_gripper_open_amounts",
+                "log_parallel_gripper_target_open_amounts",
                 self._robot_state.target_gripper_open_value,
                 time.time(),
             )
