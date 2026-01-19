@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Simple policy visualization from dataset - single script, no classes."""
+"""Simple policy visualization from dataset.
+
+Loads a policy and a dataset, and randomly selects a state
+from the dataset to run the policy with and visualize the results.
+"""
 
 import argparse
 import random
@@ -40,6 +44,9 @@ parser.add_argument(
     "--train-run-name", type=str, default=None, help="Training run name"
 )
 parser.add_argument("--model-path", type=str, default=None, help="Model file path")
+parser.add_argument(
+    "--frequency", type=int, default=100, help="Frequency of visualization"
+)
 args = parser.parse_args()
 
 if (args.train_run_name is None) == (args.model_path is None):
@@ -58,7 +65,7 @@ model_input_order = {
 }
 model_output_order = {
     DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
-    DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
+    DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
 }
 
 if args.train_run_name:
@@ -90,7 +97,7 @@ robot_data_spec: RobotDataSpec = {
 
 print("🔁 Synchronizing dataset...")
 synced_dataset = dataset.synchronize(
-    frequency=100,
+    frequency=args.frequency,
     robot_data_spec=robot_data_spec,
     prefetch_videos=True,
     max_prefetch_workers=2,
@@ -126,8 +133,8 @@ def convert_predictions_to_horizon(
                 if isinstance(batched, BatchedJointData):
                     values = batched.value[0, :, 0].cpu().numpy().tolist()
                     horizon[joint_name] = values
-    if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in predictions:
-        gripper_data = predictions[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
+    if DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in predictions:
+        gripper_data = predictions[DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS]
         if GRIPPER_LOGGING_NAME in gripper_data:
             batched = gripper_data[GRIPPER_LOGGING_NAME]
             if isinstance(batched, BatchedParallelGripperOpenAmountData):
@@ -221,7 +228,7 @@ gripper_handle = server.gui.add_slider(
 # Add frequency control
 frequency_handle = server.gui.add_number(
     "Visualization Frequency (Hz)",
-    initial_value=100.0,
+    initial_value=args.frequency,
     min=1.0,
     max=500.0,
     step=1.0,
