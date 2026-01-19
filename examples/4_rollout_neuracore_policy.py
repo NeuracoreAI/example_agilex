@@ -145,41 +145,59 @@ def run_policy(
     policy: nc.policy,
     policy_state: PolicyState,
     visualizer: RobotVisualizer,
+    model_input_order: dict[DataType, list[str]],
 ) -> bool:
     """Handle Run Policy button press to capture state and get policy prediction."""
     print("Running policy...")
 
-    # Get current joint positions
-    current_joint_angles = data_manager.get_current_joint_angles()
-    if current_joint_angles is None:
-        print("⚠️  No current joint angles available")
+    # Get available data from data_manager (only log what the model expects)
+    current_joint_angles = None
+    gripper_open_value = None
+    rgb_image = None
+
+    # Only log data types that are in model_input_order
+    if DataType.JOINT_POSITIONS in model_input_order:
+        current_joint_angles = data_manager.get_current_joint_angles()
+        if current_joint_angles is not None:
+            joint_angles_rad = np.radians(current_joint_angles)
+            joint_positions_dict = {
+                joint_name: angle
+                for joint_name, angle in zip(JOINT_NAMES, joint_angles_rad)
+            }
+            nc.log_joint_positions(joint_positions_dict)
+            print("  ✓ Logged joint positions")
+        else:
+            print("  ⚠️  No current joint angles available")
+
+    if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in model_input_order:
+        gripper_open_value = data_manager.get_current_gripper_open_value()
+        if gripper_open_value is not None:
+            nc.log_parallel_gripper_open_amount(
+                GRIPPER_LOGGING_NAME, gripper_open_value
+            )
+            print("  ✓ Logged gripper open amount")
+        else:
+            print("  ⚠️  No gripper open value available")
+
+    if DataType.RGB_IMAGES in model_input_order:
+        rgb_image = data_manager.get_rgb_image()
+        if rgb_image is not None:
+            nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
+            print("  ✓ Logged RGB image")
+        else:
+            print("  ⚠️  No RGB image available")
+
+    # Check if we have at least some data to run the policy
+    if (
+        current_joint_angles is None
+        and gripper_open_value is None
+        and rgb_image is None
+    ):
+        print("✗ No data available to run policy")
         return False
 
-    # Get current gripper open value
-    gripper_open_value = data_manager.get_current_gripper_open_value()
-    if gripper_open_value is None:
-        print("⚠️  No gripper open value available")
-        return False
-
-    # Get current RGB image
-    rgb_image = data_manager.get_rgb_image()
-    if rgb_image is None:
-        print("⚠️  No RGB image available")
-        return False
-
-    # Prepare data for NeuraCore logging
-    joint_angles_rad = np.radians(current_joint_angles)
-    joint_positions_dict = {
-        joint_name: angle for joint_name, angle in zip(JOINT_NAMES, joint_angles_rad)
-    }
-
-    # Log joint positions parallel gripper open amounts and RGB image to NeuraCore
+    # Get policy prediction
     try:
-        nc.log_joint_positions(joint_positions_dict)
-        nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_open_value)
-        nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
-
-        # Get policy prediction
         start_time = time.time()
         predictions = policy.predict(timeout=5)
         prediction_horizon = convert_predictions_to_horizon_dict(predictions)
@@ -192,9 +210,11 @@ def run_policy(
         prediction_ratio = visualizer.get_prediction_ratio()
         policy_state.set_execution_ratio(prediction_ratio)
 
-        # Set policy inputs
-        policy_state.set_policy_rgb_image_input(rgb_image)
-        policy_state.set_policy_state_input(current_joint_angles)
+        # Set policy inputs (only if available)
+        if rgb_image is not None:
+            policy_state.set_policy_rgb_image_input(rgb_image)
+        if current_joint_angles is not None:
+            policy_state.set_policy_state_input(current_joint_angles)
 
         # Store prediction horizon actions in policy state
         policy_state.set_prediction_horizon(prediction_horizon)
@@ -290,10 +310,11 @@ def run_and_start_policy_execution(
     policy: nc.policy,
     policy_state: PolicyState,
     visualizer: RobotVisualizer,
+    model_input_order: dict[DataType, list[str]],
 ) -> None:
     """Handle Run and Execute Policy button press to capture state, get policy prediction, and immediately execute it."""
     print("Run and Execute Policy for one prediction horizon")
-    run_policy(data_manager, policy, policy_state, visualizer)
+    run_policy(data_manager, policy, policy_state, visualizer, model_input_order)
     start_policy_execution(data_manager, policy_state)
 
 
@@ -318,6 +339,7 @@ def play_policy(
     policy: nc.policy,
     policy_state: PolicyState,
     visualizer: RobotVisualizer,
+    model_input_order: dict[DataType, list[str]],
 ) -> None:
     """Handle Play Policy button press to start/stop continuous policy execution."""
     if not policy_state.get_continuous_play_active():
@@ -325,7 +347,9 @@ def play_policy(
         print("▶️  Play Policy button pressed - Starting continuous policy execution...")
 
         # Run policy to get prediction horizon
-        success = run_policy(data_manager, policy, policy_state, visualizer)
+        success = run_policy(
+            data_manager, policy, policy_state, visualizer, model_input_order
+        )
         if not success:
             print("⚠️  Failed to run policy")
             end_policy_play(
@@ -368,6 +392,7 @@ def policy_execution_thread(
     policy_state: PolicyState,
     robot_controller: PiperController,
     visualizer: RobotVisualizer,
+    model_input_order: dict[DataType, list[str]],
 ) -> None:
     """Policy execution thread."""
     dt_execution = 1.0 / POLICY_EXECUTION_RATE
@@ -476,7 +501,13 @@ def policy_execution_thread(
                     # End policy execution to clear input lock
                     policy_state.end_policy_execution()
                     # Run policy to get prediction horizon
-                    success = run_policy(data_manager, policy, policy_state, visualizer)
+                    success = run_policy(
+                        data_manager,
+                        policy,
+                        policy_state,
+                        visualizer,
+                        model_input_order,
+                    )
                     if not success:
                         print("⚠️  Failed to run policy")
                         end_policy_play(
@@ -813,18 +844,25 @@ if __name__ == "__main__":
     )
     visualizer.set_go_home_callback(lambda: home_robot(data_manager, robot_controller))
     visualizer.set_run_policy_callback(
-        lambda: (run_policy(data_manager, policy, policy_state, visualizer), None)[1]
+        lambda: (
+            run_policy(
+                data_manager, policy, policy_state, visualizer, model_input_order
+            ),
+            None,
+        )[1]
     )
     visualizer.set_start_policy_execution_callback(
         lambda: (start_policy_execution(data_manager, policy_state), None)[1]
     )
     visualizer.set_run_and_start_policy_execution_callback(
         lambda: run_and_start_policy_execution(
-            data_manager, policy, policy_state, visualizer
+            data_manager, policy, policy_state, visualizer, model_input_order
         )
     )
     visualizer.set_play_policy_callback(
-        lambda: play_policy(data_manager, policy, policy_state, visualizer)
+        lambda: play_policy(
+            data_manager, policy, policy_state, visualizer, model_input_order
+        )
     )
     # Set up execution mode dropdown callback to sync with PolicyState
     visualizer.set_execution_mode_callback(
@@ -846,7 +884,14 @@ if __name__ == "__main__":
     print("\n🤖 Starting policy execution thread...")
     policy_execution_thread_obj = threading.Thread(
         target=policy_execution_thread,
-        args=(policy, data_manager, policy_state, robot_controller, visualizer),
+        args=(
+            policy,
+            data_manager,
+            policy_state,
+            robot_controller,
+            visualizer,
+            model_input_order,
+        ),
         daemon=True,
     )
     policy_execution_thread_obj.start()

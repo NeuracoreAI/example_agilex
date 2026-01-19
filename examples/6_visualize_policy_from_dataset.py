@@ -91,8 +91,17 @@ print(f"🔍 Loading dataset: {args.dataset_name}...")
 dataset = nc.get_dataset(args.dataset_name)
 print(f"  ✓ Dataset loaded: {len(dataset)} episodes")
 
+# Get data types from model input and output
+required_data_types = set(model_input_order.keys()) | set(model_output_order.keys())
+
+# Filter data spec to only include required data types
 robot_data_spec: RobotDataSpec = {
-    robot_id: dataset.get_full_data_spec(robot_id) for robot_id in dataset.robot_ids
+    robot_id: {
+        data_type: names
+        for data_type, names in dataset.get_full_data_spec(robot_id).items()
+        if data_type in required_data_types
+    }
+    for robot_id in dataset.robot_ids
 }
 
 print("🔁 Synchronizing dataset...")
@@ -165,6 +174,8 @@ def select_random_state() -> None:
         for joint_name in JOINT_NAMES:
             if joint_name in joint_data:
                 joint_positions_dict[joint_name] = joint_data[joint_name].value
+        # Log to NeuraCore for visualization
+        nc.log_joint_positions(joint_positions_dict)
 
     # Extract gripper
     gripper_value = 1.0
@@ -172,6 +183,8 @@ def select_random_state() -> None:
         gripper_data = step.data[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
         if GRIPPER_LOGGING_NAME in gripper_data:
             gripper_value = gripper_data[GRIPPER_LOGGING_NAME].open_amount
+            # Log to NeuraCore for visualization
+            nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_value)
 
     # Extract RGB image
     rgb_image = None
@@ -179,15 +192,12 @@ def select_random_state() -> None:
         rgb_data = step.data[DataType.RGB_IMAGES]
         if CAMERA_LOGGING_NAME in rgb_data:
             rgb_image = np.array(rgb_data[CAMERA_LOGGING_NAME].frame)
-
-    if rgb_image is None:
-        print("⚠️  No RGB image found")
-        return
-
-    # Log to NeuraCore
-    nc.log_joint_positions(joint_positions_dict)
-    nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_value)
-    nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
+            # Save image to file for visualization
+            image_pil = Image.fromarray(rgb_image)
+            image_pil.save("current_image.png")
+            print("💾 Saved image to current_image.png")
+            # Log to NeuraCore for visualization
+            nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
 
     # Get policy prediction
     print("🎯 Getting policy prediction...")
@@ -197,13 +207,9 @@ def select_random_state() -> None:
     playing = True
     print("FINISHED PREDICTION")
 
-    # Save image to file
-    image_pil = Image.fromarray(rgb_image)
-    image_pil.save("current_image.png")
-    print("💾 Saved image to current_image.png")
+    # Update robot to initial pose from first step in the horizon
 
-    # Update robot to initial pose
-    joint_positions = np.array([joint_positions_dict[jn] for jn in JOINT_NAMES])
+    joint_positions = np.array([current_horizon[jn][0] for jn in JOINT_NAMES])
     urdf_vis.update_cfg(joint_positions)
 
     print(
@@ -257,6 +263,14 @@ try:
                     ]
                 )
                 urdf_vis.update_cfg(joint_config)
+
+                # Log to NeuraCore for visualization
+                # NOTE: we log to joint positions instead of joint target positions
+                # because the latter is not visualized by Neuracore
+                joint_config_dict = {
+                    jn: joint_config[i] for i, jn in enumerate(JOINT_NAMES)
+                }
+                nc.log_joint_positions(joint_config_dict)
 
                 # Update gripper value
                 gripper_value = current_horizon[GRIPPER_LOGGING_NAME][
