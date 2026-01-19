@@ -54,8 +54,8 @@ from common.threads.camera import camera_thread
 from common.threads.ik_solver import ik_solver_thread
 from common.threads.joint_state import joint_state_thread
 from common.threads.quest_reader import quest_reader_thread
-
 from meta_quest_teleop.reader import MetaQuestReader
+
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
 
