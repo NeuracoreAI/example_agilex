@@ -9,7 +9,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "meta_quest_teleop"))
 from common.configs import CONTROLLER_DATA_RATE, GRIP_THRESHOLD
 from common.data_manager import DataManager, RobotActivityState
-
 from meta_quest_teleop.reader import MetaQuestReader
 
 
