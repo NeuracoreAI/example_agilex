@@ -339,7 +339,6 @@ if __name__ == "__main__":
     quest_reader = MetaQuestReader(
         ip_address=args.ip_address,
         port=5555,
-        axis_mask=[1, 1, 1, 0, 1, 0],
         run=True,
     )
 
