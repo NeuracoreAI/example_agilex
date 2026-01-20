@@ -39,7 +39,7 @@ IK_SOLVER_RATE = 500.0  # IK solving and robot commands
 VISUALIZATION_RATE = 60.0  # GUI updates
 ROBOT_RATE = 100.0
 
-# NeuraCore data collection rates
+# Neuracore data collection rates
 JOINT_STATE_STREAMING_RATE = 100.0  # Data collection rate for neuracore
 CAMERA_FRAME_STREAMING_RATE = 60.0  # Data collection rate for camera frame
 

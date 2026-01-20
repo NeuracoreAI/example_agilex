@@ -1,4 +1,4 @@
-# AgileX Piper Robot Teleoperation with NeuraCore
+# AgileX Piper Robot Teleoperation with Neuracore
 
 This project is a complete example showcasing how to use Neuracore with the AgileX Piper robot. The project provides examples teleoperating the AgileX Piper robot using a Meta Quest controller, collecting demonstration data with [Neuracore](https://neuracore.com/), deploying trained policies, and an easy interface to tune most of the associated parameters.
 
@@ -88,13 +88,13 @@ python examples/1_tune_teleop_params.py [--ip-address <quest-ip>]
 
 **Script**: `examples/2_collect_teleop_data_with_neuracore.py`
 
-Now that you have a well-tuned setup, you can use this script to record teleoperation demonstrations to NeuraCore.
+Now that you have a well-tuned setup, you can use this script to record teleoperation demonstrations to Neuracore.
 
 ```bash
 python examples/2_collect_teleop_data_with_neuracore.py [--ip-address <quest-ip>] [--dataset-name <name>]
 ```
 
-**Note**: You must be logged into NeuraCore.
+**Note**: You must be logged into Neuracore.
 
 **Arguments**:
 - `--ip-address`: IP address of Meta Quest device (optional). Only needed when using WiFi connection. If not provided, defaults to auto-discovery via USB.
@@ -104,25 +104,25 @@ python examples/2_collect_teleop_data_with_neuracore.py [--ip-address <quest-ip>
 - Same as script 1, plus:
 - **Right Joystick Press**: Start/stop data recording
 
-### 3. Replay NeuraCore Episodes
+### 3. Replay Neuracore Episodes
 
 **Script**: `examples/3_replay_neuracore_episodes.py`
 
-Replay recorded episodes from a NeuraCore dataset on the physical robot.
+Replay recorded episodes from a Neuracore dataset on the physical robot.
 
 ```bash
 python examples/3_replay_neuracore_episodes.py --dataset-name <dataset-name> [--frequency <hz>] [--episode-index <index>]
 ```
 
 **Arguments**:
-- `--dataset-name`: Name of the NeuraCore dataset to replay
+- `--dataset-name`: Name of the Neuracore dataset to replay
 - `--frequency`: Playback frequency in Hz (default: 0). 0 plays the data aperiodically (not synchronized at a certain frequency as it was recorded). 
 - `--episode-index`: Which episode to replay (default: 0). -1 will start replaying all the episodes one after the other.
 
 **NOTE:** please be careful that the robot **will start moving** on the same trajectory that was recorded. Pressing `ctrl+C`
 will gracefully disable the robot and it will cut power to the motors after 5 seconds.
 
-### 4. Rollout NeuraCore Policy (Full GUI)
+### 4. Rollout Neuracore Policy (Full GUI)
 
 **Script**: `examples/4_rollout_neuracore_policy.py`
 
@@ -147,12 +147,12 @@ python examples/4_rollout_neuracore_policy.py --model-path <path-to-model> [--ip
 ```
 
 **Arguments**:
-- `--train-run-name`: Name of the NeuraCore training run (fetches model from NeuraCore)
+- `--train-run-name`: Name of the Neuracore training run (fetches model from Neuracore)
 - `--model-path`: Local path to model file (alternative to train-run-name)
 - `--ip-address`: IP address of Meta Quest device (optional). Only needed when using WiFi connection. If not provided, defaults to auto-discovery via USB.
 
 
-### 5. Rollout NeuraCore Policy (Minimal)
+### 5. Rollout Neuracore Policy (Minimal)
 
 **Script**: `examples/5_rollout_neuracore_policy_minimal.py`
 
@@ -169,7 +169,7 @@ python examples/5_rollout_neuracore_policy_minimal.py --model-path <path-to-mode
 ```
 
 **Arguments**:
-- `--train-run-name`: Name of the NeuraCore training run (fetches model from NeuraCore)
+- `--train-run-name`: Name of the Neuracore training run (fetches model from Neuracore)
 - `--model-path`: Local path to model file (alternative to train-run-name)
 
 ### 6. Visualize Policy from Dataset
@@ -189,8 +189,8 @@ python examples/6_visualize_policy_from_dataset.py --dataset-name <dataset-name>
 ```
 
 **Arguments**:
-- `--dataset-name`: Name of the NeuraCore dataset to visualize
-- `--train-run-name`: Name of the NeuraCore training run (fetches model from NeuraCore)
+- `--dataset-name`: Name of the Neuracore dataset to visualize
+- `--train-run-name`: Name of the Neuracore training run (fetches model from Neuracore)
 - `--model-path`: Local path to model file (alternative to train-run-name)
 
 ## Configuration
@@ -248,10 +248,10 @@ example_agilex/
 - Check robot power and CAN bus connection
 - Ensure robot is in the correct mode for control
 
-### NeuraCore Connection Issues
+### Neuracore Connection Issues
 
 - Verify you're logged in: `neuracore login`
-- Check network connectivity to NeuraCore servers
+- Check network connectivity to Neuracore servers
 - Verify dataset/run names are correct
 
 ## Safety Notes

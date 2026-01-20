@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Piper Robot Teleoperation with Meta Quest Controller and NeuraCore data collection.
+"""Piper Robot Teleoperation with Meta Quest Controller and Neuracore data collection.
 
 This demo uses Pink IK control with Meta Quest controller input to control the Piper robot and
-logs data to NeuraCore.
+logs data to Neuracore.
 """
 
 
@@ -64,13 +64,13 @@ PROCESSES_LOGGING_FREQUENCY = 1000  # Hz
 
 
 def neuracore_logging_worker(queue: Queue, worker_id: int) -> None:
-    """Worker process that logs data to NeuraCore from the queue.
+    """Worker process that logs data to Neuracore from the queue.
 
     Args:
         queue: Multiprocessing queue containing logging tasks
         worker_id: Worker process identifier
     """
-    # Initialize NeuraCore connection in this worker process
+    # Initialize Neuracore connection in this worker process
     try:
         nc.login()
         nc.connect_robot(
@@ -80,7 +80,7 @@ def neuracore_logging_worker(queue: Queue, worker_id: int) -> None:
             overwrite=False,
         )
     except Exception as e:
-        print(f"\n⚠️  Worker {worker_id} failed to login to NeuraCore: {e}")
+        print(f"\n⚠️  Worker {worker_id} failed to login to Neuracore: {e}")
         return
 
     print(f"\n👷 Logging worker process {worker_id} started")
@@ -101,7 +101,7 @@ def neuracore_logging_worker(queue: Queue, worker_id: int) -> None:
             # Unpack task: (function_name, args_tuple, timestamp)
             function_name, data_value, timestamp = task
 
-            # Call appropriate NeuraCore logging function
+            # Call appropriate Neuracore logging function
             try:
                 if function_name == "log_joint_positions":
                     data_value = np.radians(data_value)
@@ -132,7 +132,7 @@ def neuracore_logging_worker(queue: Queue, worker_id: int) -> None:
                 else:
                     print(f"\n⚠️  Unknown logging function: {function_name}")
             except Exception as e:
-                print(f"\n⚠️  Failed to log {function_name} to NeuraCore: {e}")
+                print(f"\n⚠️  Failed to log {function_name} to Neuracore: {e}")
 
             # Sleep to maintain loop rate
             elapsed = time.time() - start_time
@@ -247,7 +247,7 @@ if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
 
     parser = argparse.ArgumentParser(
-        description="Piper Robot Teleoperation with NeuraCore Data Collection - REAL ROBOT CONTROL"
+        description="Piper Robot Teleoperation with Neuracore Data Collection - REAL ROBOT CONTROL"
     )
     parser.add_argument(
         "--ip-address",
@@ -273,8 +273,8 @@ if __name__ == "__main__":
     print(f"  📸 Camera Frame:     {CAMERA_FRAME_STREAMING_RATE} Hz")
     print(f"  📊 Joint State:      {JOINT_STATE_STREAMING_RATE} Hz")
 
-    # Connect to NeuraCore
-    print("\n🔧 Initializing NeuraCore...")
+    # Connect to Neuracore
+    print("\n🔧 Initializing Neuracore...")
     nc.login()
     nc.connect_robot(
         robot_name="AgileX PiPER",
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     )
 
     # Initialize logging queue and worker pool
-    print("\n📝 Initializing NeuraCore logging queue and worker pool...")
+    print("\n📝 Initializing Neuracore logging queue and worker pool...")
     logging_queue: Queue = Queue()
     logging_workers = []
 
