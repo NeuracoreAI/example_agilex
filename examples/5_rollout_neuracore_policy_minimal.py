@@ -73,7 +73,7 @@ def convert_predictions_to_horizon_dict(predictions: dict) -> dict[str, list[flo
 
 
 def log_current_state(data_manager: DataManager) -> None:
-    """Log current state to NeuraCore."""
+    """Log current state to Neuracore."""
     current_joint_angles = data_manager.get_current_joint_angles()
     if current_joint_angles is None:
         print("⚠️  No joint angles available")
@@ -91,13 +91,13 @@ def log_current_state(data_manager: DataManager) -> None:
         print("⚠️  No RGB image available")
         return
 
-    # Prepare data for NeuraCore logging
+    # Prepare data for Neuracore logging
     joint_angles_rad = np.radians(current_joint_angles)
     joint_positions_dict = {
         joint_name: angle for joint_name, angle in zip(JOINT_NAMES, joint_angles_rad)
     }
 
-    # Log joint positions, parallel gripper open amounts, and RGB image to NeuraCore
+    # Log joint positions, parallel gripper open amounts, and RGB image to Neuracore
     nc.log_joint_positions(joint_positions_dict)
     nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_open_value)
     nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
@@ -214,8 +214,8 @@ if __name__ == "__main__":
     print("PIPER POLICY ROLLOUT")
     print("=" * 60)
 
-    # Initialize NeuraCore
-    print("\n🔧 Initializing NeuraCore...")
+    # Initialize Neuracore
+    print("\n🔧 Initializing Neuracore...")
     nc.login()
     nc.connect_robot(
         robot_name="AgileX PiPER",

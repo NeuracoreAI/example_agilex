@@ -52,8 +52,8 @@ args = parser.parse_args()
 if (args.train_run_name is None) == (args.model_path is None):
     parser.error("Exactly one of --train-run-name or --model-path must be provided")
 
-# Connect to NeuraCore
-print("🔧 Initializing NeuraCore...")
+# Connect to Neuracore
+print("🔧 Initializing Neuracore...")
 nc.login()
 nc.connect_robot(robot_name="AgileX PiPER", urdf_path=str(URDF_PATH), overwrite=False)
 
@@ -174,7 +174,7 @@ def select_random_state() -> None:
         for joint_name in JOINT_NAMES:
             if joint_name in joint_data:
                 joint_positions_dict[joint_name] = joint_data[joint_name].value
-        # Log to NeuraCore for visualization
+        # Log to Neuracore for visualization
         nc.log_joint_positions(joint_positions_dict)
 
     # Extract gripper
@@ -183,7 +183,7 @@ def select_random_state() -> None:
         gripper_data = step.data[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
         if GRIPPER_LOGGING_NAME in gripper_data:
             gripper_value = gripper_data[GRIPPER_LOGGING_NAME].open_amount
-            # Log to NeuraCore for visualization
+            # Log to Neuracore for visualization
             nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_value)
 
     # Extract RGB image
@@ -196,7 +196,7 @@ def select_random_state() -> None:
             image_pil = Image.fromarray(rgb_image)
             image_pil.save("current_image.png")
             print("💾 Saved image to current_image.png")
-            # Log to NeuraCore for visualization
+            # Log to Neuracore for visualization
             nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
 
     # Get policy prediction
@@ -264,7 +264,7 @@ try:
                 )
                 urdf_vis.update_cfg(joint_config)
 
-                # Log to NeuraCore for visualization
+                # Log to Neuracore for visualization
                 # NOTE: we log to joint positions instead of joint target positions
                 # because the latter is not visualized by Neuracore
                 joint_config_dict = {

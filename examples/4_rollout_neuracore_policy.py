@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Piper Robot Test with NeuraCore policy.
+"""Piper Robot Test with Neuracore policy.
 
-This script loads a trained NeuraCore policy, reads status from the piper robot
+This script loads a trained Neuracore policy, reads status from the piper robot
 controlled by the Meta Quest controller, and replays the prediction horizon virtually
 on Viser to test the stability of the policy output.
 """
@@ -656,7 +656,7 @@ def update_visualization(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Piper Robot Test with NeuraCore Policy - REAL ROBOT CONTROL"
+        description="Piper Robot Test with Neuracore Policy - REAL ROBOT CONTROL"
     )
     parser.add_argument(
         "--ip-address",
@@ -695,8 +695,8 @@ if __name__ == "__main__":
     print(f"  📊 Joint State:      {JOINT_STATE_STREAMING_RATE} Hz")
     print(f"  🖥️  Visualization:    {VISUALIZATION_RATE} Hz")
 
-    # Connect to NeuraCore
-    print("\n🔧 Initializing NeuraCore...")
+    # Connect to Neuracore
+    print("\n🔧 Initializing Neuracore...")
     nc.login()
     nc.connect_robot(
         robot_name="AgileX PiPER",
