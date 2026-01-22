@@ -1,5 +1,17 @@
 # AgileX Piper Robot Teleoperation with Neuracore
 
+<div align="center">
+  <img src="docs/demo.gif" width="100%">
+</div>
+
+<div align="center">
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Discord](https://img.shields.io/badge/Discord-join%20chat-7289da.svg)](https://discord.gg/DF5m8V6nbD)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
 This project is a complete example showcasing how to use Neuracore with the AgileX Piper robot. The project provides examples teleoperating the AgileX Piper robot using a Meta Quest controller, collecting demonstration data with [Neuracore](https://neuracore.com/), deploying trained policies, and an easy interface to tune most of the associated parameters.
 
 ## Prerequisites
@@ -228,6 +240,10 @@ example_agilex/
 ```
 
 ## Troubleshooting
+
+### Python 3.10 issues
+
+Python 3.10 has known compatibility issues with some dependencies (e.g. certain versions of NumPy, PyTorch, or other packages). If you run into import errors, version conflicts, or odd runtime behaviour, try using Python 3.11 or 3.12 instead.
 
 ### Import Errors
 
