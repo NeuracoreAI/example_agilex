@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 """Monitor Meta Quest right hand controller movement and display flags for significant changes."""
 
-import sys
 import time
 from collections import deque
-from pathlib import Path
 
 import numpy as np
-from scipy.spatial.transform import Rotation
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "meta_quest_teleop"))
-
 from meta_quest_teleop.reader import MetaQuestReader
+from scipy.spatial.transform import Rotation
 
 
 class MovementMonitor:

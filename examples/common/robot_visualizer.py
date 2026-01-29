@@ -168,7 +168,7 @@ class RobotVisualizer:
             )
 
     def set_toggle_robot_enabled_status_callback(
-        self, callback: Callable[[], None]
+        self, callback: Callable[[], Any]
     ) -> None:
         """Set callback for toggle robot enabled status button.
 
@@ -723,7 +723,7 @@ class RobotVisualizer:
             return self._ghost_robot_urdf.show_visual
         return False
 
-    def set_run_policy_callback(self, callback: Callable[[], None]) -> None:
+    def set_run_policy_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for Run Policy button.
 
         Args:
@@ -732,7 +732,7 @@ class RobotVisualizer:
         if self._run_policy_button is not None:
             self._run_policy_button.on_click(lambda _: callback())
 
-    def set_start_policy_execution_callback(self, callback: Callable[[], None]) -> None:
+    def set_start_policy_execution_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for Execute Policy button.
 
         Args:
@@ -742,7 +742,7 @@ class RobotVisualizer:
             self._start_policy_execution_button.on_click(lambda _: callback())
 
     def set_run_and_start_policy_execution_callback(
-        self, callback: Callable[[], None]
+        self, callback: Callable[[], Any]
     ) -> None:
         """Set callback for Run and Execute Policy button.
 
@@ -752,7 +752,7 @@ class RobotVisualizer:
         if self._run_and_start_policy_execution_button is not None:
             self._run_and_start_policy_execution_button.on_click(lambda _: callback())
 
-    def set_play_policy_callback(self, callback: Callable[[], None]) -> None:
+    def set_play_policy_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for Play Policy button.
 
         Args:
@@ -761,7 +761,7 @@ class RobotVisualizer:
         if self._play_policy_button is not None:
             self._play_policy_button.on_click(lambda _: callback())
 
-    def set_execution_mode_callback(self, callback: Callable[[], None]) -> None:
+    def set_execution_mode_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for execution mode dropdown.
 
         Args:
@@ -770,7 +770,7 @@ class RobotVisualizer:
         if self._execution_mode_dropdown is not None:
             self._execution_mode_dropdown.on_update(lambda _: callback())
 
-    def set_enable_robot_callback(self, callback: Callable[[], None]) -> None:
+    def set_enable_robot_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for Enable Robot button.
 
         Args:
@@ -779,7 +779,7 @@ class RobotVisualizer:
         if self._enable_robot_handle is not None:
             self._enable_robot_handle.on_click(lambda _: callback())
 
-    def set_disable_robot_callback(self, callback: Callable[[], None]) -> None:
+    def set_disable_robot_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for Disable Robot button.
 
         Args:
@@ -788,7 +788,7 @@ class RobotVisualizer:
         if self._disable_robot_handle is not None:
             self._disable_robot_handle.on_click(lambda _: callback())
 
-    def set_emergency_stop_callback(self, callback: Callable[[], None]) -> None:
+    def set_emergency_stop_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for Emergency Stop button.
 
         Args:
@@ -797,7 +797,7 @@ class RobotVisualizer:
         if self._emergency_stop_handle is not None:
             self._emergency_stop_handle.on_click(lambda _: callback())
 
-    def set_go_home_callback(self, callback: Callable[[], None]) -> None:
+    def set_go_home_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for Go Home button.
 
         Args:

@@ -41,7 +41,9 @@ conda activate piper-teleop
 
 ### 3. Clone and Install Meta Quest Teleop Package
 
-Clone the Meta Quest teleoperation repository inside this example directory and install it:
+Clone the Meta Quest teleoperation repository and install it:
+
+**NOTE**: Make sure you're installing it inside the `piper-teleop` conda environment.
 
 ```bash
 git clone https://github.com/NeuracoreAI/meta_quest_teleop.git
@@ -72,6 +74,8 @@ AgileX Piper Robot
 - **Pink IK Solver**: Solves inverse kinematics to convert end-effector poses from the meta quest into joint angles
 
 ## Usage
+
+**IMPORTANT NOTE:** Make sure that you have followed the instructions to set up the meta quest (according to [meta_quest_teleop](https://github.com/NeuracoreAI/meta_quest_teleop) README instructions) and that your equipment are functioning before starting the examples. Same applies to the piper robot! 
 
 ### 1. Tune Teleoperation Parameters
 
@@ -241,10 +245,6 @@ example_agilex/
 
 ## Troubleshooting
 
-### Python 3.10 issues
-
-Python 3.10 has known compatibility issues with some dependencies (e.g. certain versions of NumPy, PyTorch, or other packages). If you run into import errors, version conflicts, or odd runtime behaviour, try using Python 3.11 or 3.12 instead.
-
 ### Import Errors
 
 - Ensure conda environment is activated: `conda activate piper-teleop`
@@ -255,12 +255,14 @@ Python 3.10 has known compatibility issues with some dependencies (e.g. certain 
   cd meta_quest_teleop
   pip install -e .
   cd ..
+  pip show meta_quest_teleop
   ```
 
 ### Robot Communication Issues
 
 - Verify CAN interface is active: `ip link show can0`
 - You can activate CAN interface with: `bash scripts/piper/can_activate.sh can0 1000000`
+- **NOTE:** you'll most probably need to activate the CAN interface when you first connect your robot  to your machine.
 - Check robot power and CAN bus connection
 - Ensure robot is in the correct mode for control
 
@@ -268,7 +270,7 @@ Python 3.10 has known compatibility issues with some dependencies (e.g. certain 
 
 - Verify you're logged in: `neuracore login`
 - Check network connectivity to Neuracore servers
-- Verify dataset/run names are correct
+- Verify dataset names/run names/model paths are correct
 
 ## Safety Notes
 

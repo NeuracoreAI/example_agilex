@@ -17,6 +17,7 @@ dependencies:
       - matplotlib
       - neuracore
       - neuracore_types
+      - pyrealsense2
 
 
 

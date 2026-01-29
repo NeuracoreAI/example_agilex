@@ -24,9 +24,6 @@ from neuracore_types import (
 # Add parent directory to path to import pink_ik_solver and piper_controller
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Add meta_quest_teleop to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "meta_quest_teleop"))
-
 from common.configs import (
     CAMERA_FRAME_STREAMING_RATE,
     CAMERA_LOGGING_NAME,
@@ -844,15 +841,12 @@ if __name__ == "__main__":
     )
     visualizer.set_go_home_callback(lambda: home_robot(data_manager, robot_controller))
     visualizer.set_run_policy_callback(
-        lambda: (
-            run_policy(
-                data_manager, policy, policy_state, visualizer, model_input_order
-            ),
-            None,
-        )[1]
+        lambda: run_policy(
+            data_manager, policy, policy_state, visualizer, model_input_order
+        )
     )
     visualizer.set_start_policy_execution_callback(
-        lambda: (start_policy_execution(data_manager, policy_state), None)[1]
+        lambda: start_policy_execution(data_manager, policy_state)
     )
     visualizer.set_run_and_start_policy_execution_callback(
         lambda: run_and_start_policy_execution(

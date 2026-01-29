@@ -22,10 +22,6 @@ import numpy as np
 # Add parent directory to path to import pink_ik_solver and piper_controller
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Add meta_quest_teleop to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "meta_quest_teleop"))
-
-
 from common.configs import (
     CAMERA_FRAME_STREAMING_RATE,
     CONTROLLER_BETA,

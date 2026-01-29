@@ -1,12 +1,8 @@
 """Quest reader thread - reads controller data and manages teleop state."""
 
-import sys
 import time
 import traceback
-from pathlib import Path
 
-# Add meta_quest_teleop to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "meta_quest_teleop"))
 from common.configs import CONTROLLER_DATA_RATE, GRIP_THRESHOLD
 from common.data_manager import DataManager, RobotActivityState
 from meta_quest_teleop.reader import MetaQuestReader
