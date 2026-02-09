@@ -8,7 +8,7 @@ to coordinate between multiple threads (data collection, IK solving, visualizati
 import threading
 import time
 from enum import Enum
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -117,10 +117,10 @@ class DataManager:
         self._shutdown_event = threading.Event()
 
         # Callback for state changes (RGB, target joints, current joints)
-        self._on_change_callback: Callable[[str, float, float], None] | None = None
+        self._on_change_callback: Callable[[str, Any, float], None] | None = None
 
     def set_on_change_callback(
-        self, on_change_callback: Callable[[str, float, float], None]
+        self, on_change_callback: Callable[[str, Any, float], None]
     ) -> None:
         """Set on change callback (thread-safe)."""
         self._on_change_callback = on_change_callback
