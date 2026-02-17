@@ -135,7 +135,8 @@ class PiperController:
             and self.piper is not None
             and self.piper.get_connect_status()
         ):
-            self.graceful_stop()  # this will disable the robot as well
+            if self.is_robot_enabled():
+                self.graceful_stop()  # this will disable the robot as well
             self.piper.DisconnectPort()
             print("✓ Robot disconnected")
 

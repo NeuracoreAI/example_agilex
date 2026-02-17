@@ -85,7 +85,9 @@ def log_to_neuracore_on_change_callback(
         else:
             print(f"\n⚠️  Unknown logging function: {name}")
     except Exception as e:
-        print(f"\n⚠️  Failed to call {name} to Neuracore: {e}")
+        print(f"\n⚠️  Failed to call {name} to Neuracore. Exception: {e}")
+        print("Traceback:")
+        traceback.print_exc()
 
 
 def on_button_a_pressed() -> None:
@@ -132,14 +134,18 @@ def on_button_rj_pressed() -> None:
             nc.start_recording()
             print("✓ 🔴 Recording started (Button RJ)")
         except Exception as e:
-            print(f"✗ Failed to start recording: {e}")
+            print(f"✗ Failed to start recording. Exception: {e}")
+            print("Traceback:")
+            traceback.print_exc()
     else:
         # Stop recording
         try:
             nc.stop_recording()
             print("✓ ⏹️ Recording stopped (Button RJ)")
         except Exception as e:
-            print(f"✗ Failed to stop recording: {e}")
+            print(f"✗ Failed to stop recording. Exception: {e}")
+            print("Traceback:")
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
@@ -298,11 +304,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n👋 Interrupt received - shutting down gracefully...")
     except Exception as e:
-        print(f"\n❌ Demo error: {e}")
-        import traceback
-
+        print(f"\n❌ Demo error. Exception: {e}")
+        print("Traceback:")
         traceback.print_exc()
-
     # Cleanup
     print("\n🧹 Cleaning up...")
 
@@ -313,7 +317,9 @@ if __name__ == "__main__":
             nc.cancel_recording()
             print("✓ Recording cancelled")
         except Exception as e:
-            print(f"⚠️  Error cancelling recording: {e}")
+            print(f"⚠️  Error cancelling recording. Exception: {e}")
+            print("Traceback:")
+            traceback.print_exc()
 
     # shutdown threads
     nc.logout()
