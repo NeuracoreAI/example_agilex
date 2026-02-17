@@ -35,7 +35,7 @@ ROTATION_SCALE = 2.0
 
 # Thread rates (Hz)
 CONTROLLER_DATA_RATE = 50.0  # Controller input reading
-IK_SOLVER_RATE = 500.0  # IK solving and robot commands
+IK_SOLVER_RATE = 250.0  # IK solving and robot commands
 VISUALIZATION_RATE = 60.0  # GUI updates
 ROBOT_RATE = 100.0
 
