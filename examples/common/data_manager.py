@@ -117,6 +117,7 @@ class DataManager:
         self._shutdown_event = threading.Event()
 
         # Callback for state changes (RGB, target joints, current joints)
+        # the callable takes arguments: (stream_name: str, data: Any, timestamp: float)
         self._on_change_callback: Callable[[str, Any, float], None] | None = None
 
     def set_on_change_callback(
