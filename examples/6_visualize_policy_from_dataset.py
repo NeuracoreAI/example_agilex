@@ -22,7 +22,6 @@ from neuracore_types import (
     DataType,
     RobotDataSpec,
 )
-from PIL import Image
 from viser.extras import ViserUrdf
 
 # Add parent directory to path
@@ -60,8 +59,8 @@ nc.connect_robot(robot_name="AgileX PiPER", urdf_path=str(URDF_PATH), overwrite=
 # Load policy
 model_input_order = {
     DataType.JOINT_POSITIONS: JOINT_NAMES,
-    DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
     DataType.RGB_IMAGES: [CAMERA_LOGGING_NAME],
+    DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
 }
 model_output_order = {
     DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
@@ -117,6 +116,14 @@ print(f"  ✓ Dataset synchronized: {len(synced_dataset)} episodes")
 print("🖥️  Starting Viser...")
 server = viser.ViserServer()
 server.scene.add_grid("/ground", width=2, height=2, cell_size=0.1)
+
+# Add camera feed image to Viser GUI (view image inside viser)
+rgb_image_handle = server.gui.add_image(
+    np.zeros((240, 320, 3), dtype=np.uint8),
+    label="RGB",
+    format="jpeg",
+    jpeg_quality=85,
+)
 
 # Load URDF
 urdf = yourdfpy.URDF.load(str(URDF_PATH))
@@ -192,10 +199,14 @@ def select_random_state() -> None:
         rgb_data = step.data[DataType.RGB_IMAGES]
         if CAMERA_LOGGING_NAME in rgb_data:
             rgb_image = np.array(rgb_data[CAMERA_LOGGING_NAME].frame)
-            # Save image to file for visualization
-            image_pil = Image.fromarray(rgb_image)
-            image_pil.save("current_image.png")
-            print("💾 Saved image to current_image.png")
+            # Update camera feed in Viser GUI
+            img = np.asarray(rgb_image, dtype=np.uint8)
+            if img.ndim == 3:
+                if img.shape[-1] == 4:
+                    img = img[:, :, :3].copy()
+                else:
+                    img = img[:, :, :3].copy() if img.shape[-1] >= 3 else img
+                rgb_image_handle.image = img
             # Log to Neuracore for visualization
             nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
 

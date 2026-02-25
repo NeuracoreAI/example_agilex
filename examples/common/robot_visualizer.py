@@ -94,6 +94,9 @@ class RobotVisualizer:
         self._run_and_start_policy_execution_button = None
         self._play_policy_button = None
 
+        # Camera feed (live RGB in GUI, same as test_streaming/stream_npy_video_to_gui.py)
+        self._rgb_image_handle = None
+
         # Internal state
         self._ema_timing = 0.001
 
@@ -640,6 +643,32 @@ class RobotVisualizer:
             options=["targeting_time", "targeting_pose"],
             initial_value=initial_execution_mode,
         )
+
+    def add_camera_feed(self) -> None:
+        """Add live camera feed image to the Viser GUI (same as test_streaming scripts)."""
+        self._rgb_image_handle = self._server.gui.add_image(
+            np.zeros((240, 320, 3), dtype=np.uint8),
+            label="RGB (live)",
+            format="jpeg",
+            jpeg_quality=85,
+        )
+
+    def update_camera_feed(self, rgb_image: np.ndarray | None) -> None:
+        """Update the camera feed image in the Viser GUI.
+
+        Args:
+            rgb_image: RGB image (H, W, 3) or (H, W, 4), uint8. None leaves current image.
+        """
+        if self._rgb_image_handle is None or rgb_image is None:
+            return
+        img = np.asarray(rgb_image, dtype=np.uint8)
+        if img.ndim != 3:
+            return
+        if img.shape[-1] == 4:
+            img = img[:, :, :3].copy()
+        else:
+            img = img[:, :, :3].copy() if img.shape[-1] >= 3 else img
+        self._rgb_image_handle.image = img
 
     def add_policy_buttons(self) -> None:
         """Add policy control buttons."""

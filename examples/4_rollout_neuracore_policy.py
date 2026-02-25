@@ -562,6 +562,11 @@ def update_visualization(
     visualizer: RobotVisualizer,
 ) -> None:
     """Update visualization."""
+    # Update live camera feed in Viser GUI (same as test_streaming scripts)
+    rgb_image = data_manager.get_rgb_image()
+    if rgb_image is not None:
+        visualizer.update_camera_feed(rgb_image)
+
     # Update actual robot visualization
     current_joint_angles = data_manager.get_current_joint_angles()
     if current_joint_angles is not None:
@@ -834,6 +839,7 @@ if __name__ == "__main__":
     visualizer.add_toggle_robot_enabled_status_button()
     visualizer.add_homing_controls()
     visualizer.add_policy_buttons()
+    visualizer.add_camera_feed()
 
     # Set up button callbacks
     visualizer.set_toggle_robot_enabled_status_callback(
