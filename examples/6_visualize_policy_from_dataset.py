@@ -40,17 +40,23 @@ parser = argparse.ArgumentParser(
     description="Visualize policy predictions from dataset"
 )
 parser.add_argument("--dataset-name", type=str, required=True, help="Dataset name")
-parser.add_argument(
+policy_group = parser.add_mutually_exclusive_group(required=True)
+policy_group.add_argument(
     "--train-run-name", type=str, default=None, help="Training run name"
 )
-parser.add_argument("--model-path", type=str, default=None, help="Model file path")
+policy_group.add_argument(
+    "--model-path", type=str, default=None, help="Model file path"
+)
+policy_group.add_argument(
+    "--remote-endpoint-name",
+    type=str,
+    default=None,
+    help="Name of remote Neuracore policy endpoint to use instead of a local policy.",
+)
 parser.add_argument(
     "--frequency", type=int, default=100, help="Frequency of visualization"
 )
 args = parser.parse_args()
-
-if (args.train_run_name is None) == (args.model_path is None):
-    parser.error("Exactly one of --train-run-name or --model-path must be provided")
 
 # Connect to Neuracore
 print("🔧 Initializing Neuracore...")
@@ -68,7 +74,17 @@ model_output_order = {
     DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
 }
 
-if args.train_run_name:
+if args.remote_endpoint_name:
+    print(f"🤖 Connecting to remote policy endpoint: {args.remote_endpoint_name}...")
+    try:
+        policy = nc.policy_remote_server(args.remote_endpoint_name)
+    except nc.EndpointError:
+        print(
+            f"❌ Endpoint '{args.remote_endpoint_name}' not available. "
+            "Please start it from the Neuracore dashboard."
+        )
+        sys.exit(1)
+elif args.train_run_name:
     print(f"🤖 Loading policy from training run: {args.train_run_name}...")
     policy = nc.policy(
         train_run_name=args.train_run_name,
