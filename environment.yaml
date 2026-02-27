@@ -18,6 +18,7 @@ dependencies:
       - neuracore
       - neuracore_types
       - pyrealsense2
+      - feetech-servo-sdk
 
 
 

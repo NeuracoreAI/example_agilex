@@ -11,6 +11,9 @@ fromarray
 hyperparameters
 imshow
 Levenberg
+lerobot
+Lerobot
+LEROBOT
 linalg
 Marquardt
 mathbb
@@ -49,3 +52,10 @@ Viser
 wxyz
 xyzw
 yourdfpy
+scservo
+BAUDRATE
+huggingface
+LOBYTE
+HIBYTE
+Feetech
+Millis

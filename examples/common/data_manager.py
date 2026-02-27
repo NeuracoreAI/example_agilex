@@ -93,6 +93,17 @@ class CameraState:
         self.rgb_image: np.ndarray | None = None
 
 
+class LeaderMappedState:
+    """Leader arm mapped state - joint angles and gripper from leader read_mapped()."""
+
+    def __init__(self) -> None:
+        """Initialize LeaderMappedState with default values."""
+        self._lock = threading.Lock()
+
+        self.joint_angles: np.ndarray | None = None
+        self.gripper_open: float | None = None
+
+
 class DataManager:
     """Main state container coordinating all state groups.
 
@@ -112,6 +123,7 @@ class DataManager:
         self._robot_state = RobotState()
         self._ik_state = IKState()
         self._camera_state = CameraState()
+        self._leader_mapped_state = LeaderMappedState()
 
         # System state
         self._shutdown_event = threading.Event()
@@ -529,6 +541,42 @@ class DataManager:
         """
         with self._ik_state._lock:
             return self._ik_state.success
+
+    # ============================================================================
+    # Leader Mapped State Methods
+    # ============================================================================
+
+    def set_leader_mapped_state(
+        self, joint_angles: np.ndarray, gripper_open: float
+    ) -> None:
+        """Set leader-mapped joint angles and gripper (thread-safe).
+
+        Args:
+            joint_angles: Follower-space joint angles from leader read_mapped().
+            gripper_open: Gripper open amount in [0, 1].
+        """
+        with self._leader_mapped_state._lock:
+            self._leader_mapped_state.joint_angles = (
+                joint_angles.copy() if joint_angles is not None else None
+            )
+            self._leader_mapped_state.gripper_open = gripper_open
+
+    def get_leader_mapped_state(
+        self,
+    ) -> tuple[np.ndarray | None, float | None]:
+        """Get leader-mapped joint angles and gripper (thread-safe).
+
+        Returns:
+            Tuple of (joint_angles, gripper_open); either may be None if not set.
+        """
+        with self._leader_mapped_state._lock:
+            angles = (
+                self._leader_mapped_state.joint_angles.copy()
+                if self._leader_mapped_state.joint_angles is not None
+                else None
+            )
+            gripper = self._leader_mapped_state.gripper_open
+            return (angles, gripper)
 
     # ============================================================================
     # System State Methods
