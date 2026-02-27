@@ -86,12 +86,14 @@ class PiperController:
             )
 
         # Gripper range in degrees (for internal SDK communication)
-        self.GRIPPER_DEGREES_MIN = 0.000
+        self.GRIPPER_DEGREES_MIN = -5.000
         self.GRIPPER_DEGREES_MAX = 95.00
         self.GRIPPER_DEGREES_RANGE = self.GRIPPER_DEGREES_MAX - self.GRIPPER_DEGREES_MIN
 
-        # Home gripper value in normalized form (53.8 / 95.0)
-        self.HOME_GRIPPER_OPEN_VALUE_DEGREES = 53.800
+        # Home gripper value in degrees
+        self.HOME_GRIPPER_OPEN_VALUE_DEGREES = (
+            self.GRIPPER_DEGREES_RANGE / 2.0
+        ) + self.GRIPPER_DEGREES_MIN
 
         # End-effector target pose
         self._target_pose = self.HOME_POSE.copy()
@@ -351,7 +353,6 @@ class PiperController:
             self._gripper_open_value_degrees = (
                 normalized * self.GRIPPER_DEGREES_RANGE + self.GRIPPER_DEGREES_MIN
             )
-
             if self.debug_mode:
                 print(f"Gripper updated: {normalized:.3f} (normalized)")
 
@@ -549,6 +550,7 @@ class PiperController:
         try:
             # Convert from degrees to piper SDK units (0.001degrees)
             gripper_value = round(gripper_open_value_degrees * 1000)
+
             self.piper.GripperCtrl(gripper_value, 1000, 0x01, 0)
 
         except Exception as e:
