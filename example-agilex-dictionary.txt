@@ -11,6 +11,9 @@ fromarray
 hyperparameters
 imshow
 Levenberg
+lerobot
+Lerobot
+LEROBOT
 linalg
 Marquardt
 mathbb
