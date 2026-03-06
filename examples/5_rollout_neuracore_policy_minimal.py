@@ -178,17 +178,24 @@ def execute_horizon(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Minimal Piper Policy Test")
-    parser.add_argument(
+    policy_group = parser.add_mutually_exclusive_group(required=True)
+    policy_group.add_argument(
         "--train-run-name",
         type=str,
         default=None,
-        help="Name of the training run to load policy from (for cloud training). Mutually exclusive with --model-path.",
+        help="Name of the training run to load policy from (for cloud training).",
     )
-    parser.add_argument(
+    policy_group.add_argument(
         "--model-path",
         type=str,
         default=None,
-        help="Path to local model file to load policy from. Mutually exclusive with --train-run-name.",
+        help="Path to local model file to load policy from.",
+    )
+    policy_group.add_argument(
+        "--remote-endpoint-name",
+        type=str,
+        default=None,
+        help="Name of remote Neuracore policy endpoint.",
     )
     parser.add_argument(
         "--frequency",
@@ -203,12 +210,6 @@ if __name__ == "__main__":
         help="Execution ratio of the policy",
     )
     args = parser.parse_args()
-
-    # Validate that exactly one of train-run-name or model-path is provided
-    if (args.train_run_name is None) == (args.model_path is None):
-        parser.error(
-            "Exactly one of --train-run-name or --model-path must be provided (not both, not neither)"
-        )
 
     print("=" * 60)
     print("PIPER POLICY ROLLOUT")
@@ -244,7 +245,19 @@ if __name__ == "__main__":
     for data_type, names in model_output_order.items():
         print(f"  {data_type.name}: {names}")
 
-    if args.train_run_name is not None:
+    if args.remote_endpoint_name is not None:
+        print(
+            f"\n🤖 Connecting to remote policy endpoint: {args.remote_endpoint_name}..."
+        )
+        try:
+            policy = nc.policy_remote_server(args.remote_endpoint_name)
+        except nc.EndpointError:
+            print(
+                f"❌ Endpoint '{args.remote_endpoint_name}' not available. "
+                "Please start it from the Neuracore dashboard."
+            )
+            sys.exit(1)
+    elif args.train_run_name is not None:
         print(f"\n🤖 Loading policy from training run: {args.train_run_name}...")
         policy = nc.policy(
             train_run_name=args.train_run_name,
