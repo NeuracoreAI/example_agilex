@@ -101,12 +101,6 @@ parser.add_argument(
     default=None,
     help="IP address of Meta Quest device (optional, defaults to None for auto-discovery)",
 )
-parser.add_argument(
-    "--dataset-name",
-    type=str,
-    default=None,
-    help="Optional name for the saved teleop data file",
-)
 args = parser.parse_args()
 
 print("=" * 60)
