@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AgileX PiPER Teleoperation using LeRobot Leader Arm and Foot Pedal.
 
-This script maps a physical LeRobot leader arm and a 3-button Foot Pedal 
+This script maps a physical LeRobot leader arm and a 3-button Foot Pedal
 to a simulated AgileX PiPER robot in Neuracore.
 """
 
@@ -28,24 +28,36 @@ sys.path.insert(0, str(_example_so101_root / "examples"))
 # Add neuracore and other dependencies
 _neuracore_pkg_root = _ws_root / "neuracore"
 sys.path.insert(0, str(_neuracore_pkg_root))
+sys.path.insert(
+    0, str(_example_agilex_root)
+)  # Fix for local piper_controller if needed
 
 # CRITICAL: Set PYTHONPATH so that spawned subprocesses (like the data daemon) can find neuracore
-os.environ["PYTHONPATH"] = str(_neuracore_pkg_root) + os.pathsep + os.environ.get("PYTHONPATH", "")
+os.environ["PYTHONPATH"] = (
+    str(_neuracore_pkg_root) + os.pathsep + os.environ.get("PYTHONPATH", "")
+)
 
-import neuracore as nc
+import neuracore as nc  # noqa: E402
 
 # Import from example_so101 common components
-from common.data_manager import DataManager, RobotActivityState
-from common.leader_arm import LerobotSO101LeaderArm
-from neuracore.core.input_devices.foot_pedal import FootPedal
+from common.data_manager import DataManager, RobotActivityState  # noqa: E402
+from common.leader_arm import LerobotSO101LeaderArm  # noqa: E402
+from neuracore.core.input_devices.foot_pedal import FootPedal  # noqa: E402
 
 # AgileX PiPER Configurations
 PIPER_JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 # Limits in degrees
-PIPER_LIMITS_DEG = np.array([
-    (-150.0, 150.0), (0.0, 180.0), (-170.0, 0.0),
-    (-100.0, 100.0), (-70.0, 70.0), (-120.0, 120.0)
-], dtype=np.float64)
+PIPER_LIMITS_DEG = np.array(
+    [
+        (-150.0, 150.0),
+        (0.0, 180.0),
+        (-170.0, 0.0),
+        (-100.0, 100.0),
+        (-70.0, 70.0),
+        (-120.0, 120.0),
+    ],
+    dtype=np.float64,
+)
 
 PIPER_OFFSETS_DEG = np.zeros(6, dtype=np.float64)
 PIPER_DIRECTIONS = np.ones(6, dtype=np.float64)
@@ -57,33 +69,63 @@ PIPER_DIRECTIONS = np.ones(6, dtype=np.float64)
 # Leader 3 (Wrist Flex) -> Piper joint5
 # Leader 4 (Wrist Roll) -> Piper joint6
 LEADER_TO_PIPER_JOINT = {0: 0, 1: 1, 2: 2, 3: 4, 4: 5}
-PIPER_FIXED_JOINTS = {3: 0.0} # joint4 fixed at 0
+PIPER_FIXED_JOINTS = {3: 0.0}  # joint4 fixed at 0
 
-URDF_PATH = _example_agilex_root / "piper_description" / "urdf" / "piper_description.urdf"
+URDF_PATH = (
+    _example_agilex_root / "piper_description" / "urdf" / "piper_description.urdf"
+)
 
-def leader_reader_thread(data_manager: DataManager, leader: LerobotSO101LeaderArm, rate: float):
+
+def leader_reader_thread(
+    data_manager: DataManager, leader: LerobotSO101LeaderArm, rate: float
+) -> None:
+    """Thread for reading data from the leader arm and updating the shared state.
+
+    Args:
+        data_manager: Shared state manager.
+        leader: Initialized leader arm instance.
+        rate: Frequency in Hz to read the arm.
+    """
     dt = 1.0 / rate
     while not data_manager.is_shutdown_requested():
         try:
             if leader.is_connected:
                 angles, gripper = leader.read_mapped()
-                data_manager.set_leader_mapped_state(angles, gripper)
+                data_manager.set_leader_mapped_state(angles, gripper)  # type: ignore[attr-defined]
         except Exception as e:
             print(f"Error in leader reader thread: {e}")
         time.sleep(dt)
 
-def main():
-    parser = argparse.ArgumentParser(description="AgileX PiPER Teleop with LeRobot Leader and Foot Pedal")
-    parser.add_argument("--leader-port", type=str, default="/dev/ttyACM0", help="USB port for leader arm")
-    parser.add_argument("--leader-id", type=str, default="my_awesome_leader_arm", help="LeRobot calibration id")
-    parser.add_argument("--leader-rate", type=float, default=50.0, help="Reading rate in Hz")
-    parser.add_argument("--robot-name", type=str, default="AgileX PiPER", help="Robot name in Neuracore")
-    
-    # Pedal keys
+
+def main() -> None:
+    """Main execution entry point for teleoperation script."""
+    parser = argparse.ArgumentParser(
+        description="AgileX PiPER Teleop with LeRobot Leader and Foot Pedal"
+    )
+    parser.add_argument(
+        "--leader-port",
+        type=str,
+        default="/dev/ttyACM0",
+        help="USB port for leader arm",
+    )
+    parser.add_argument(
+        "--leader-id",
+        type=str,
+        default="my_awesome_leader_arm",
+        help="LeRobot calibration id",
+    )
+    parser.add_argument(
+        "--leader-rate", type=float, default=50.0, help="Reading rate in Hz"
+    )
+    parser.add_argument(
+        "--robot-name", type=str, default="AgileX PiPER", help="Robot name in Neuracore"
+    )
+
+    # Pedal keys (Matching OpenArm unified mapping)
     parser.add_argument("--pedal-activate", type=str, default="a")
-    parser.add_argument("--pedal-home", type=str, default="b")
-    parser.add_argument("--pedal-record", type=str, default="c")
-    
+    parser.add_argument("--pedal-home", type=str, default="h")
+    parser.add_argument("--pedal-record", type=str, default="r")
+
     args = parser.parse_args()
 
     print("=" * 60)
@@ -99,20 +141,23 @@ def main():
         print(f"❌ Failed to connect to leader: {e}")
         print("Tip: Run the robust calibration script first.")
         sys.exit(1)
-    
+
     # Adjusted Piper Config for better mapping
-    local_limits_deg = np.array([
-        (-150.0, 150.0), (0.0, 160.0), (-160.0, 0.0), # J1, J2, J3
-        (-100.0, 100.0), (-100.0, 100.0), (-180.0, 180.0) # J4, J5, J6
-    ], dtype=np.float64)
-    
-    # Official Neutral Angles: [-1.0, 80.0, -51.0, -4.0, 16.0, 2.6]
-    # We use these as offsets so leader 0 -> official neutral
+    local_limits_deg = np.array(
+        [
+            (-150.0, 150.0),
+            (0.0, 160.0),
+            (-160.0, 0.0),  # J1, J2, J3
+            (-100.0, 100.0),
+            (-100.0, 100.0),
+            (-180.0, 180.0),  # J4, J5, J6
+        ],
+        dtype=np.float64,
+    )
+
+    # Reverting to the previous working offsets as requested
+    # These worked well for the user in the initial session
     local_offsets_deg = np.array([-1.0, 80.0, -51.0, 0.0, 16.0, 2.6])
-    
-    # Directions: 
-    # J3 (Elbow) often needs to be flipped if leader fold -> piper fold
-    # J2 (Lift) leader up -> piper lift up
     local_directions = np.array([1.0, 1.0, -1.0, 1.0, 1.0, 1.0])
 
     leader.configure_follower(
@@ -120,22 +165,34 @@ def main():
         follower_offsets_deg=local_offsets_deg,
         follower_directions=local_directions,
         leader_to_follower_joint=LEADER_TO_PIPER_JOINT,
-        fixed_joints=PIPER_FIXED_JOINTS
+        fixed_joints=PIPER_FIXED_JOINTS,
     )
-    print("✓ Leader arm configured with OFFICIAL offsets")
+    print("✓ Leader arm configured with WORKING offsets (Reverted)")
 
     # Neutral Pose for Parking/Home (degrees) - Using official values
     NEUTRAL_POSE_DEG = np.array([-1.0, 80.0, -51.0, 0.0, 16.0, 2.6])
 
     # 2. Initialize Data Manager and Foot Pedal
     data_manager = DataManager()
-    data_manager.set_robot_activity_state(RobotActivityState.DISABLED) # Start DISABLED
-    
+    data_manager.set_robot_activity_state(RobotActivityState.DISABLED)  # Start DISABLED
+
     pedal = FootPedal()
-    pedal.save_config(activate_key=args.pedal_activate, home_key=args.pedal_home, record_key=args.pedal_record)
+
+    # HARDCODE working keys for the user's specific FootSwitch
+    # a = ACTIVATE, b = HOME, c = RECORD
+    activate_key = "a"
+    home_key = "b"
+    record_key = "c"
+
+    # Save this config so the FootPedal class picks it up
+    pedal.save_config(
+        activate_key=activate_key, home_key=home_key, record_key=record_key
+    )
+    print(f"✓ PEDAL MAPPINGS ENFORCED: {pedal.mappings}")
 
     # Define callbacks first
-    def on_activate():
+    def on_activate() -> None:
+        """Toggle the robot enable/disable state."""
         state = data_manager.get_robot_activity_state()
         if state == RobotActivityState.ENABLED:
             data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
@@ -144,13 +201,17 @@ def main():
             data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
             print("✓ [PEDAL] Robot ENABLED (Following Leader)")
 
-    def on_home():
+    def on_home() -> None:
+        """Trigger the homing procedure."""
         print("🏠 [PEDAL] Moving to home position...")
         data_manager.set_robot_activity_state(RobotActivityState.HOMING)
 
-    def on_record():
+    def on_record() -> None:
+        """Toggle Neuracore recording session."""
         print("⏺️ [PEDAL] Toggling recording...")
-        if not nc.is_recording():
+        current_status = nc.is_recording()
+        print(f"🔍 [DEBUG] Current Neuracore recording status: {current_status}")
+        if not current_status:
             try:
                 nc.start_recording()
                 print("✓ [PEDAL] Recording STARTED")
@@ -169,14 +230,18 @@ def main():
     pedal.on("record", on_record)
 
     pedal.start()
-    print(f"⌨️  Foot Pedal listener started (Keys: {args.pedal_activate}, {args.pedal_home}, {args.pedal_record})")
+    print(
+        f"⌨️  Foot Pedal listener started (Keys: {args.pedal_activate}, {args.pedal_home}, {args.pedal_record})"
+    )
 
     # 3. Initialize Neuracore
     print("\n🔧 Initializing Neuracore...")
     nc.login()
     print(f"📦 Connecting to Robot: {args.robot_name}")
-    nc.connect_robot(robot_name=args.robot_name, urdf_path=str(URDF_PATH))
-    
+    nc.connect_robot(
+        robot_name=args.robot_name, urdf_path=str(URDF_PATH), overwrite=True
+    )
+
     ds_name = f"piper-leader-teleop-{time.strftime('%Y%m%d-%H%M%S')}"
     print(f"📂 Creating Dataset: {ds_name}")
     nc.create_dataset(name=ds_name)
@@ -185,7 +250,7 @@ def main():
     reader_thread = threading.Thread(
         target=leader_reader_thread,
         args=(data_manager, leader, args.leader_rate),
-        daemon=True
+        daemon=True,
     )
     reader_thread.start()
 
@@ -195,14 +260,14 @@ def main():
     print(f"2. Press '{args.pedal_activate}' to ENABLE (Mirror Leader).")
     print(f"3. Press '{args.pedal_record}' to Toggle Recording.")
     print("------------------------------------------------------------")
-    
+
     loop_count = 0
     try:
         while True:
             t0 = time.time()
             mapped_angles, mapped_gripper = data_manager.get_leader_mapped_state()
             state = data_manager.get_robot_activity_state()
-            
+
             if state == RobotActivityState.HOMING:
                 angles_deg = NEUTRAL_POSE_DEG
                 gripper_val = 0.5
@@ -215,7 +280,7 @@ def main():
                 # ENABLED: Follow Leader
                 if mapped_angles is not None:
                     angles_deg = mapped_angles
-                    gripper_val = mapped_gripper
+                    gripper_val = mapped_gripper if mapped_gripper is not None else 0.5
                 else:
                     angles_deg = NEUTRAL_POSE_DEG
                     gripper_val = 0.5
@@ -226,9 +291,13 @@ def main():
                 # Debug every 30 loops (~2Hz)
                 if loop_count % 30 == 0:
                     if state == RobotActivityState.DISABLED:
-                        print(f"💡 [REMINDER] Robot is DISABLED. Press '{args.pedal_activate}' to Mirror. [Raw Grip: {gripper_val:.2f}]")
+                        print(
+                            f"💡 [REMINDER] Robot is DISABLED. Press '{args.pedal_activate}' to Mirror. [Raw Grip: {gripper_val:.2f}]"
+                        )
                     else:
-                        print(f"📡 [MIRRORING] J1-3: {np.round(angles_deg[:3], 1)} | Grip: {gripper_val:.2f}")
+                        print(
+                            f"📡 [MIRRORING] J1-3: {np.round(angles_deg[:3], 1)} | Grip: {gripper_val:.2f}"
+                        )
 
                 # Log to Neuracore
                 data_dict = {}
@@ -238,7 +307,7 @@ def main():
                     if i == 3 and abs(val) < 0.0001:
                         val = 0.0001
                     data_dict[f"joint{i+1}"] = val
-                
+
                 # Visual Gripper Joints (joint7, joint8)
                 if gripper_val is not None:
                     # joint7: 0 (closed) to 0.035 (open)
@@ -247,11 +316,11 @@ def main():
                     data_dict["joint8"] = float(-gripper_val * 0.035)
 
                 nc.log_joint_positions(data_dict, timestamp=t0)
-                
+
             else:
                 if loop_count % 60 == 0:
                     print("⚠️  [WARNING] No leader data received! Is it plugged in?")
-                
+
             time.sleep(max(0, 1.0 / 60.0 - (time.time() - t0)))
 
     except KeyboardInterrupt:
@@ -266,6 +335,7 @@ def main():
         leader.disconnect()
         nc.logout()
         print("👋 Shutdown complete.")
+
 
 if __name__ == "__main__":
     main()

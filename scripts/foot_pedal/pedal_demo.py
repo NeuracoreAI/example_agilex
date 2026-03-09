@@ -2,7 +2,6 @@
 """Example of using the Foot Pedal to control the Piper robot."""
 
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -11,10 +10,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import neuracore as nc
 from neuracore.core.input_devices.foot_pedal import FootPedal
+
 from piper_controller import PiperController
 
 
-def main():
+def main() -> None:
+    """Run a demonstration of foot pedal control for the Piper robot."""
     print("=" * 60)
     print("FOOT PEDAL ROBOT CONTROL DEMO")
     print("=" * 60)
@@ -32,7 +33,7 @@ def main():
     # Initialize Foot Pedal
     print("\n⌨️  Initializing Foot Pedal...")
     pedal = FootPedal()
-    
+
     if not any(pedal.mappings.values()):
         print("⚠️  Foot pedal mappings are empty. Please run run_pedal_config.sh first.")
         # Default fallback for demo
@@ -44,10 +45,13 @@ def main():
         nc.login()
         print("✓ Connected to Neuracore")
     except Exception:
-        print("⚠️  Neuracore connection failed. Recording actions will only print messages.")
+        print(
+            "⚠️  Neuracore connection failed. Recording actions will only print messages."
+        )
 
     # Define callbacks
-    def on_activate():
+    def on_activate() -> None:
+        """Handle the activate/enable action."""
         print("\n🚀 Foot Pedal: ACTIVATE pressed")
         if robot:
             if robot.resume_robot():
@@ -57,7 +61,8 @@ def main():
         else:
             print("Action: Robot ACTIVATE (MOCK)")
 
-    def on_home():
+    def on_home() -> None:
+        """Handle the move-to-home action."""
         print("\n🏠 Foot Pedal: HOME pressed")
         if robot:
             robot.move_to_home()
@@ -65,7 +70,8 @@ def main():
         else:
             print("Action: Robot HOME (MOCK)")
 
-    def on_record():
+    def on_record() -> None:
+        """Handle the toggle-recording action."""
         print("\n📹 Foot Pedal: RECORD pressed")
         try:
             if not nc.is_recording():
@@ -76,7 +82,7 @@ def main():
                 print("✓ Recording stopped")
         except Exception as e:
             print(f"⚠️ Recording action failed: {e}")
-            print(f"Action: Toggle Recording (MOCK)")
+            print("Action: Toggle Recording (MOCK)")
 
     # Register callbacks
     pedal.on("activate", on_activate)

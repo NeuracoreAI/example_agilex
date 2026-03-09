@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Piper Robot Teleoperation with Meta Quest and Foot Pedal control.
 
-This script combines Meta Quest controller input for movement with Foot Pedal 
+This script combines Meta Quest controller input for movement with Foot Pedal
 control for session management (Activate, Home, Record).
 """
 
@@ -10,8 +10,8 @@ import multiprocessing
 import sys
 import threading
 import time
-import traceback
 from pathlib import Path
+from typing import Any
 
 import neuracore as nc
 import numpy as np
@@ -22,26 +22,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "neuracore"))
 
 from common.configs import (
-    CAMERA_FRAME_STREAMING_RATE,
     CONTROLLER_BETA,
     CONTROLLER_D_CUTOFF,
-    CONTROLLER_DATA_RATE,
     CONTROLLER_MIN_CUTOFF,
-    DAMPING_COST,
-    FRAME_TASK_GAIN,
     GRIPPER_FRAME_NAME,
     GRIPPER_LOGGING_NAME,
-    IK_SOLVER_RATE,
     JOINT_NAMES,
-    JOINT_STATE_STREAMING_RATE,
-    LM_DAMPING,
     NEUTRAL_JOINT_ANGLES,
-    ORIENTATION_COST,
-    POSITION_COST,
     POSTURE_COST_VECTOR,
     ROBOT_RATE,
-    SOLVER_DAMPING_VALUE,
-    SOLVER_NAME,
     URDF_PATH,
 )
 from common.data_manager import DataManager, RobotActivityState
@@ -50,13 +39,22 @@ from common.threads.ik_solver import ik_solver_thread
 from common.threads.joint_state import joint_state_thread
 from common.threads.quest_reader import quest_reader_thread
 from meta_quest_teleop.reader import MetaQuestReader
+from neuracore.core.input_devices.foot_pedal import FootPedal
 
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
-from neuracore.core.input_devices.foot_pedal import FootPedal
 
 
-def log_to_neuracore_on_change_callback(name: str, value: float, timestamp: float) -> None:
+def log_to_neuracore_on_change_callback(
+    name: str, value: Any, timestamp: float
+) -> None:
+    """Callback triggered on state changes to log data to Neuracore.
+
+    Args:
+        name: Name of the data stream.
+        value: Data value (float, array, or image).
+        timestamp: Time of the change.
+    """
     try:
         if name == "log_joint_positions":
             data_dict = {jn: np.radians(a) for jn, a in zip(JOINT_NAMES, value)}
@@ -65,9 +63,13 @@ def log_to_neuracore_on_change_callback(name: str, value: float, timestamp: floa
             data_dict = {jn: np.radians(a) for jn, a in zip(JOINT_NAMES, value)}
             nc.log_joint_target_positions(data_dict, timestamp=timestamp)
         elif name == "log_parallel_gripper_open_amounts":
-            nc.log_parallel_gripper_open_amounts({GRIPPER_LOGGING_NAME: value}, timestamp=timestamp)
+            nc.log_parallel_gripper_open_amounts(
+                {GRIPPER_LOGGING_NAME: value}, timestamp=timestamp
+            )
         elif name == "log_parallel_gripper_target_open_amounts":
-            nc.log_parallel_gripper_target_open_amounts({GRIPPER_LOGGING_NAME: value}, timestamp=timestamp)
+            nc.log_parallel_gripper_target_open_amounts(
+                {GRIPPER_LOGGING_NAME: value}, timestamp=timestamp
+            )
         elif name == "log_rgb":
             nc.log_rgb("rgb", value, timestamp=timestamp)
     except Exception as e:
@@ -75,6 +77,7 @@ def log_to_neuracore_on_change_callback(name: str, value: float, timestamp: floa
 
 
 def toggle_robot_state() -> None:
+    """Toggle the robot's activity state between ENABLED and DISABLED."""
     state = data_manager.get_robot_activity_state()
     if state == RobotActivityState.ENABLED:
         data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
@@ -90,6 +93,7 @@ def toggle_robot_state() -> None:
 
 
 def move_robot_home() -> None:
+    """Command the robot to move to its neutral/home position."""
     state = data_manager.get_robot_activity_state()
     if state == RobotActivityState.ENABLED:
         print("🏠 [ACTION] Moving to home position...")
@@ -103,6 +107,7 @@ def move_robot_home() -> None:
 
 
 def toggle_recording() -> None:
+    """Start or stop a data recording session in Neuracore."""
     if not nc.is_recording():
         try:
             nc.start_recording()
@@ -132,15 +137,19 @@ if __name__ == "__main__":
     # Neuracore Init
     print("\n🔧 Initializing Neuracore...")
     nc.login()
-    nc.connect_robot(robot_name="AgileX PiPER", urdf_path=str(URDF_PATH), overwrite=False)
-    
+    nc.connect_robot(
+        robot_name="AgileX PiPER", urdf_path=str(URDF_PATH), overwrite=False
+    )
+
     ds_name = args.dataset_name or f"pedal-teleop-{time.strftime('%H-%M-%S')}"
     nc.create_dataset(name=ds_name, description="Quest + Pedal unified collection")
 
     # Shared State
     data_manager = DataManager()
     data_manager.set_on_change_callback(log_to_neuracore_on_change_callback)
-    data_manager.set_controller_filter_params(CONTROLLER_MIN_CUTOFF, CONTROLLER_BETA, CONTROLLER_D_CUTOFF)
+    data_manager.set_controller_filter_params(
+        CONTROLLER_MIN_CUTOFF, CONTROLLER_BETA, CONTROLLER_D_CUTOFF
+    )
 
     # Robot Initialization
     print("\n🤖 Initializing Piper...")
@@ -149,18 +158,28 @@ if __name__ == "__main__":
 
     # Threads
     print("\n📊 Starting Threads (JointState, QuestReader, IKSolver, Camera)...")
-    threading.Thread(target=joint_state_thread, args=(data_manager, robot_controller), daemon=True).start()
-    
+    threading.Thread(
+        target=joint_state_thread, args=(data_manager, robot_controller), daemon=True
+    ).start()
+
     quest_reader = MetaQuestReader(ip_address=args.ip_address, port=5555, run=True)
-    threading.Thread(target=quest_reader_thread, args=(data_manager, quest_reader), daemon=True).start()
+    threading.Thread(
+        target=quest_reader_thread, args=(data_manager, quest_reader), daemon=True
+    ).start()
 
     # Sync IK solver to current position
-    initial_joints = np.radians(data_manager.get_current_joint_angles() or NEUTRAL_JOINT_ANGLES)
-    ik_solver = PinkIKSolver(
-        urdf_path=URDF_PATH, end_effector_frame=GRIPPER_FRAME_NAME,
-        initial_configuration=initial_joints, posture_cost_vector=np.array(POSTURE_COST_VECTOR)
+    initial_joints = np.radians(
+        data_manager.get_current_joint_angles() or NEUTRAL_JOINT_ANGLES
     )
-    threading.Thread(target=ik_solver_thread, args=(data_manager, ik_solver), daemon=True).start()
+    ik_solver = PinkIKSolver(
+        urdf_path=URDF_PATH,
+        end_effector_frame=GRIPPER_FRAME_NAME,
+        initial_configuration=initial_joints,
+        posture_cost_vector=np.array(POSTURE_COST_VECTOR),
+    )
+    threading.Thread(
+        target=ik_solver_thread, args=(data_manager, ik_solver), daemon=True
+    ).start()
     threading.Thread(target=camera_thread, args=(data_manager,), daemon=True).start()
 
     # Foot Pedal Initialization
@@ -184,7 +203,8 @@ if __name__ == "__main__":
         print("\n👋 Shutting down...")
     finally:
         pedal.stop()
-        if nc.is_recording(): nc.cancel_recording()
+        if nc.is_recording():
+            nc.cancel_recording()
         nc.logout()
         data_manager.request_shutdown()
         quest_reader.stop()
