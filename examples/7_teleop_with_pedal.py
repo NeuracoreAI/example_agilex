@@ -21,11 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Add neuracore path for local imports if needed
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "neuracore"))
 
-import json
-import traceback
-from typing import Callable
 
-from common.configs import (
+from common.configs import (  # noqa: E402
     CONTROLLER_BETA,
     CONTROLLER_D_CUTOFF,
     CONTROLLER_MIN_CUTOFF,
@@ -37,135 +34,27 @@ from common.configs import (
     ROBOT_RATE,
     URDF_PATH,
 )
-from common.data_manager import DataManager, RobotActivityState
-from common.threads.camera import camera_thread
-from common.threads.ik_solver import ik_solver_thread
-from common.threads.joint_state import joint_state_thread
-from common.threads.quest_reader import quest_reader_thread
-from meta_quest_teleop.reader import MetaQuestReader
+from common.data_manager import DataManager, RobotActivityState  # noqa: E402
+from common.threads.camera import camera_thread  # noqa: E402
+from common.threads.foot_pedal import FootPedal  # noqa: E402
+from common.threads.ik_solver import ik_solver_thread  # noqa: E402
+from common.threads.joint_state import joint_state_thread  # noqa: E402
+from common.threads.quest_reader import quest_reader_thread  # noqa: E402
+from meta_quest_teleop.reader import MetaQuestReader  # noqa: E402
 
-from pink_ik_solver import PinkIKSolver
-from piper_controller import PiperController
+from pink_ik_solver import PinkIKSolver  # noqa: E402
+from piper_controller import PiperController  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Foot Pedal logic (Moved here per PR review)
 # ---------------------------------------------------------------------------
-
-_PEDAL_CONFIG_PATH = Path.home() / ".neuracore" / "foot_pedal.json"
-_DEFAULT_MAPPINGS = {"button_a": "a", "button_b": "b", "button_c": "c"}
-
-
-class FootPedal:
-    """Foot pedal reader class - fires callbacks on key press."""
-
-    def __init__(self, data_manager: DataManager, config: dict[str, Any] | None = None):
-        """Initialize FootPedal with data_manager and optional config."""
-        self._data_manager = data_manager
-        self._config = config or self.load_config()
-        self._mappings = {
-            "button_a": self._config.get("button_a"),
-            "button_b": self._config.get("button_b"),
-            "button_c": self._config.get("button_c"),
-        }
-
-        # Callbacks
-        self.on_button_a: Callable[[], None] | None = None
-        self.on_button_b: Callable[[], None] | None = None
-        self.on_button_c: Callable[[], None] | None = None
-
-    @staticmethod
-    def load_config() -> dict[str, Any]:
-        """Load foot pedal key mappings from JSON file."""
-        if _PEDAL_CONFIG_PATH.exists():
-            try:
-                with open(_PEDAL_CONFIG_PATH) as f:
-                    return dict(json.load(f))
-            except Exception as e:
-                print(f"⚠️  Could not load pedal config: {e}")
-        return dict(_DEFAULT_MAPPINGS)
-
-    def _dispatch(self, char: str) -> None:
-        """Fire the right callback for the detected key char."""
-        if char == self._mappings.get("button_a") and self.on_button_a:
-            self.on_button_a()
-        elif char == self._mappings.get("button_b") and self.on_button_b:
-            self.on_button_b()
-        elif char == self._mappings.get("button_c") and self.on_button_c:
-            self.on_button_c()
-
-    def run(self) -> None:
-        """Main listener loop."""
-        print(f"⌨️  Foot pedal listener started. Mappings: {self._mappings}")
-
-        # -- evdev path (preferred on Linux) ------------------------------------
-        try:
-            import evdev
-
-            devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-            pedals = [
-                d for d in devices if "PCsensor" in d.name or "FootSwitch" in d.name
-            ]
-
-            if pedals:
-                pedal_dev = pedals[0]
-                for p in pedals:
-                    if "Keyboard" in p.name:
-                        pedal_dev = p
-                        break
-
-                print(f"⌨️  Foot pedal acquired via evdev: {pedal_dev.name}")
-                try:
-                    pedal_dev.grab()
-                    for event in pedal_dev.read_loop():
-                        if self._data_manager.is_shutdown_requested():
-                            break
-                        if event.type == evdev.ecodes.EV_KEY:
-                            k = evdev.categorize(event)
-                            if k.keystate == k.key_down:
-                                key_str = k.keycode
-                                if isinstance(key_str, list):
-                                    key_str = key_str[0]
-                                char = key_str.replace("KEY_", "").lower()
-                                print(f"🔍 [PEDAL] Key: '{char}'")
-                                self._dispatch(char)
-                except Exception as e:
-                    print(f"⚠️  evdev read error: {e}")
-                finally:
-                    try:
-                        pedal_dev.ungrab()
-                    except Exception:
-                        pass
-                print("⌨️  Foot pedal thread stopped (evdev).")
-                return
-
-        except Exception as e:
-            print(f"⚠️  evdev unavailable: {e} — falling back to pynput")
-
-        # -- pynput fallback ----------------------------------------------------
-        try:
-            from pynput import keyboard
-
-            print("⌨️  Foot pedal listener (pynput fallback) started.")
-
-            def on_press(key: object) -> None:
-                try:
-                    char = key.char if hasattr(key, "char") else str(key)
-                    self._dispatch(char)
-                except Exception:
-                    pass
-
-            with keyboard.Listener(on_press=on_press) as listener:
-                while not self._data_manager.is_shutdown_requested():
-                    if not listener.is_alive():
-                        break
-                    time.sleep(0.1)
-                listener.stop()
-
-        except Exception as e:
-            print(f"✗ Fatal error in foot pedal: {e}")
-            traceback.print_exc()
-        finally:
-            print("⌨️  Foot pedal listener stopped.")
+# Foot Pedal Configuration - Edit these to match your hardware
+#   ENABLE_DISABLE_PEDAL -> Toggle robot ENABLE / DISABLE
+#   HOME_POSITION_PEDAL  -> Move robot to HOME position
+#   RECORD_TOGGLE_PEDAL  -> Toggle data recording (Matches Quest RJ)
+# ---------------------------------------------------------------------------
+ENABLE_DISABLE_PEDAL = "a"
+HOME_POSITION_PEDAL = "b"
+RECORD_TOGGLE_PEDAL = "c"
 
 
 def log_to_neuracore_on_change_callback(
@@ -201,48 +90,67 @@ def log_to_neuracore_on_change_callback(
 
 def toggle_robot_state() -> None:
     """Toggle the robot's activity state between ENABLED and DISABLED."""
+    print("🔘 Pedal toggled - Robot State")
     state = data_manager.get_robot_activity_state()
+
     if state == RobotActivityState.ENABLED:
         data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
-        robot_controller.graceful_stop()
+        if robot_controller:
+            robot_controller.graceful_stop()
         data_manager.set_teleop_state(False, None, None)
-        print("✓ [ACTION] Robot DISABLED")
-    elif state == RobotActivityState.DISABLED:
+        print("✓ 🔴 Robot disabled (Pedal)")
+    elif state == RobotActivityState.DISABLED or state == RobotActivityState.HOMING:
+        # If no robot, just toggle the state for dashboard visibility
+        if not robot_controller:
+            data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
+            print("✓ 🟢 Robot enabled (Pedal - Headless)")
+            return
+
         if robot_controller.resume_robot():
             data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
-            print("✓ [ACTION] Robot ENABLED")
+            print("✓ 🟢 Robot enabled (Pedal)")
         else:
             print("✗ [ACTION] Failed to enable robot")
 
 
 def move_robot_home() -> None:
     """Command the robot to move to its neutral/home position."""
+    print("🏠 Pedal toggled - Move Home")
     state = data_manager.get_robot_activity_state()
+
     if state == RobotActivityState.ENABLED:
-        print("🏠 [ACTION] Moving to home position...")
+        print("🏠 Pedal pressed - Moving to home position...")
         data_manager.set_robot_activity_state(RobotActivityState.HOMING)
         data_manager.set_teleop_state(False, None, None)
-        if not robot_controller.move_to_home():
-            print("✗ [ACTION] Homing failed")
+
+        if robot_controller:
+            if not robot_controller.move_to_home():
+                print("✗ Failed to initiate home move")
+                data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
+        else:
+            # Headless simulation of homing
+            time.sleep(1)
             data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
+            print("✓ 🏠 Robot homed (Headless)")
     else:
-        print("⚠️  [ACTION] Cannot home: robot not enabled")
+        print("⚠️  Pedal pressed but robot is not enabled")
 
 
 def toggle_recording() -> None:
     """Start or stop a data recording session in Neuracore."""
+    print("⏺️ Pedal toggled - Recording")
     if not nc.is_recording():
         try:
             nc.start_recording()
-            print("✓ [ACTION] Recording STARTED")
+            print("✓ 🔴 Recording started (Pedal)")
         except Exception as e:
-            print(f"✗ [ACTION] Recording failed to start: {e}")
+            print(f"✗ Failed to start recording: {e}")
     else:
         try:
             nc.stop_recording()
-            print("✓ [ACTION] Recording STOPPED")
+            print("✓ ⏹️ Recording stopped (Pedal)")
         except Exception as e:
-            print(f"✗ [ACTION] Recording failed to stop: {e}")
+            print(f"✗ Failed to stop recording: {e}")
 
 
 if __name__ == "__main__":
@@ -259,13 +167,15 @@ if __name__ == "__main__":
 
     # Neuracore Init
     print("\n🔧 Initializing Neuracore...")
-    nc.login()
-    nc.connect_robot(
-        robot_name="AgileX PiPER", urdf_path=str(URDF_PATH), overwrite=False
-    )
-
-    ds_name = args.dataset_name or f"pedal-teleop-{time.strftime('%H-%M-%S')}"
-    nc.create_dataset(name=ds_name, description="Quest + Pedal unified collection")
+    try:
+        nc.login()
+        nc.connect_robot(
+            robot_name="AgileX PiPER", urdf_path=str(URDF_PATH), overwrite=False
+        )
+        ds_name = args.dataset_name or f"pedal-teleop-{time.strftime('%H-%M-%S')}"
+        nc.create_dataset(name=ds_name, description="Quest + Pedal unified collection")
+    except Exception as e:
+        print(f"⚠️  Neuracore initialization skipped/failed: {e}")
 
     # Shared State
     data_manager = DataManager()
@@ -276,38 +186,68 @@ if __name__ == "__main__":
 
     # Robot Initialization
     print("\n🤖 Initializing Piper...")
-    robot_controller = PiperController(can_interface="can0", robot_rate=ROBOT_RATE)
-    robot_controller.start_control_loop()
+    robot_controller = None
+    try:
+        robot_controller = PiperController(can_interface="can0", robot_rate=ROBOT_RATE)
+        robot_controller.start_control_loop()
+    except Exception as e:
+        print(f"⚠️  Robot controller initialization skipped/failed: {e}")
 
     # Threads
     print("\n📊 Starting Threads (JointState, QuestReader, IKSolver, Camera)...")
-    threading.Thread(
-        target=joint_state_thread, args=(data_manager, robot_controller), daemon=True
-    ).start()
+    pedal_thread = None
+    if robot_controller:
+        threading.Thread(
+            target=joint_state_thread,
+            args=(data_manager, robot_controller),
+            daemon=True,
+        ).start()
 
-    quest_reader = MetaQuestReader(ip_address=args.ip_address, port=5555, run=True)
-    threading.Thread(
-        target=quest_reader_thread, args=(data_manager, quest_reader), daemon=True
-    ).start()
+    quest_reader = None
+    try:
+        print("🔍 Searching for Meta Quest...")
+        # Adb initialization in the reader might call sys.exit(1), so we catch BaseException
+        quest_reader = MetaQuestReader(ip_address=args.ip_address, port=5555, run=True)
+        threading.Thread(
+            target=quest_reader_thread, args=(data_manager, quest_reader), daemon=True
+        ).start()
+    except (Exception, BaseException) as e:
+        print(f"⚠️  Quest reader initialization skipped/failed: {e}")
 
     # Sync IK solver to current position
-    initial_joints = np.radians(
-        data_manager.get_current_joint_angles() or NEUTRAL_JOINT_ANGLES
-    )
-    ik_solver = PinkIKSolver(
-        urdf_path=URDF_PATH,
-        end_effector_frame=GRIPPER_FRAME_NAME,
-        initial_configuration=initial_joints,
-        posture_cost_vector=np.array(POSTURE_COST_VECTOR),
-    )
-    threading.Thread(
-        target=ik_solver_thread, args=(data_manager, ik_solver), daemon=True
-    ).start()
-    threading.Thread(target=camera_thread, args=(data_manager,), daemon=True).start()
+    try:
+        initial_joints = np.radians(
+            data_manager.get_current_joint_angles() or NEUTRAL_JOINT_ANGLES
+        )
+        ik_solver = PinkIKSolver(
+            urdf_path=URDF_PATH,
+            end_effector_frame=GRIPPER_FRAME_NAME,
+            initial_configuration=initial_joints,
+            posture_cost_vector=np.array(POSTURE_COST_VECTOR),
+        )
+        threading.Thread(
+            target=ik_solver_thread, args=(data_manager, ik_solver), daemon=True
+        ).start()
+    except Exception as e:
+        print(f"⚠️  IK Solver initialization skipped/failed: {e}")
+
+    try:
+        threading.Thread(
+            target=camera_thread, args=(data_manager,), daemon=True
+        ).start()
+    except Exception as e:
+        print(f"⚠️  Camera thread failed to start: {e}")
 
     # Foot Pedal – started as a daemon thread, callbacks wired inline
     print("\n⌨️  Initializing Foot Pedals...")
-    pedal = FootPedal(data_manager)
+    pedal = FootPedal(
+        data_manager,
+        key_map={
+            "button_a": ENABLE_DISABLE_PEDAL,
+            "button_b": HOME_POSITION_PEDAL,
+            "button_c": RECORD_TOGGLE_PEDAL,
+        },
+    )
     pedal.on_button_a = toggle_robot_state
     pedal.on_button_b = move_robot_home
     pedal.on_button_c = toggle_recording
@@ -317,8 +257,8 @@ if __name__ == "__main__":
 
     print("\n✅ SYSTEM ONLINE")
     print("------------------------------------------------------------")
-    print("🎮 QUEST CONTROLS:   Hold GRIP to move, TRIGGER for gripper")
-    print("⌨️  PEDAL CONTROLS:   ACTIVATE (Enable), HOME (Reset), RECORD")
+    print("🎮 QUEST CONTROLS:  Hold GRIP to move, TRIGGER for gripper")
+    print("⌨️  PEDAL CONTROLS:  ENABLE/DISABLE (A), HOME (B), RECORD (C)")
     print("------------------------------------------------------------")
 
     try:
@@ -327,10 +267,22 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n👋 Shutting down...")
     finally:
-        pedal_thread.join(timeout=1.0)
-        if nc.is_recording():
-            nc.cancel_recording()
-        nc.logout()
+        if pedal_thread:
+            pedal_thread.join(timeout=1.0)
+        try:
+            if nc.is_recording():
+                nc.cancel_recording()
+            nc.logout()
+        except Exception:
+            pass
         data_manager.request_shutdown()
-        quest_reader.stop()
-        robot_controller.cleanup()
+        if quest_reader:
+            try:
+                quest_reader.stop()
+            except Exception:
+                pass
+        if robot_controller:
+            try:
+                robot_controller.cleanup()
+            except Exception:
+                pass
