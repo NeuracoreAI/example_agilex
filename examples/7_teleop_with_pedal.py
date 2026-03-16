@@ -21,6 +21,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Add neuracore path for local imports if needed
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "neuracore"))
 
+import json
+import traceback
+from typing import Callable
+
 from common.configs import (
     CONTROLLER_BETA,
     CONTROLLER_D_CUTOFF,
@@ -39,10 +43,129 @@ from common.threads.ik_solver import ik_solver_thread
 from common.threads.joint_state import joint_state_thread
 from common.threads.quest_reader import quest_reader_thread
 from meta_quest_teleop.reader import MetaQuestReader
-from neuracore.core.input_devices.foot_pedal import FootPedal
 
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
+
+# ---------------------------------------------------------------------------
+# Foot Pedal logic (Moved here per PR review)
+# ---------------------------------------------------------------------------
+
+_PEDAL_CONFIG_PATH = Path.home() / ".neuracore" / "foot_pedal.json"
+_DEFAULT_MAPPINGS = {"button_a": "a", "button_b": "b", "button_c": "c"}
+
+
+class FootPedal:
+    """Foot pedal reader class - fires callbacks on key press."""
+
+    def __init__(self, data_manager: DataManager, config: dict[str, Any] | None = None):
+        """Initialize FootPedal with data_manager and optional config."""
+        self._data_manager = data_manager
+        self._config = config or self.load_config()
+        self._mappings = {
+            "button_a": self._config.get("button_a"),
+            "button_b": self._config.get("button_b"),
+            "button_c": self._config.get("button_c"),
+        }
+
+        # Callbacks
+        self.on_button_a: Callable[[], None] | None = None
+        self.on_button_b: Callable[[], None] | None = None
+        self.on_button_c: Callable[[], None] | None = None
+
+    @staticmethod
+    def load_config() -> dict[str, Any]:
+        """Load foot pedal key mappings from JSON file."""
+        if _PEDAL_CONFIG_PATH.exists():
+            try:
+                with open(_PEDAL_CONFIG_PATH) as f:
+                    return dict(json.load(f))
+            except Exception as e:
+                print(f"⚠️  Could not load pedal config: {e}")
+        return dict(_DEFAULT_MAPPINGS)
+
+    def _dispatch(self, char: str) -> None:
+        """Fire the right callback for the detected key char."""
+        if char == self._mappings.get("button_a") and self.on_button_a:
+            self.on_button_a()
+        elif char == self._mappings.get("button_b") and self.on_button_b:
+            self.on_button_b()
+        elif char == self._mappings.get("button_c") and self.on_button_c:
+            self.on_button_c()
+
+    def run(self) -> None:
+        """Main listener loop."""
+        print(f"⌨️  Foot pedal listener started. Mappings: {self._mappings}")
+
+        # -- evdev path (preferred on Linux) ------------------------------------
+        try:
+            import evdev
+
+            devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+            pedals = [
+                d for d in devices if "PCsensor" in d.name or "FootSwitch" in d.name
+            ]
+
+            if pedals:
+                pedal_dev = pedals[0]
+                for p in pedals:
+                    if "Keyboard" in p.name:
+                        pedal_dev = p
+                        break
+
+                print(f"⌨️  Foot pedal acquired via evdev: {pedal_dev.name}")
+                try:
+                    pedal_dev.grab()
+                    for event in pedal_dev.read_loop():
+                        if self._data_manager.is_shutdown_requested():
+                            break
+                        if event.type == evdev.ecodes.EV_KEY:
+                            k = evdev.categorize(event)
+                            if k.keystate == k.key_down:
+                                key_str = k.keycode
+                                if isinstance(key_str, list):
+                                    key_str = key_str[0]
+                                char = key_str.replace("KEY_", "").lower()
+                                print(f"🔍 [PEDAL] Key: '{char}'")
+                                self._dispatch(char)
+                except Exception as e:
+                    print(f"⚠️  evdev read error: {e}")
+                finally:
+                    try:
+                        pedal_dev.ungrab()
+                    except Exception:
+                        pass
+                print("⌨️  Foot pedal thread stopped (evdev).")
+                return
+
+        except Exception as e:
+            print(f"⚠️  evdev unavailable: {e} — falling back to pynput")
+
+        # -- pynput fallback ----------------------------------------------------
+        try:
+            from pynput import keyboard
+
+            print("⌨️  Foot pedal listener (pynput fallback) started.")
+
+            def on_press(key: object) -> None:
+                try:
+                    char = key.char if hasattr(key, "char") else str(key)
+                    self._dispatch(char)
+                except Exception:
+                    pass
+
+            with keyboard.Listener(on_press=on_press) as listener:
+                while not self._data_manager.is_shutdown_requested():
+                    if not listener.is_alive():
+                        break
+                    time.sleep(0.1)
+                listener.stop()
+
+        except Exception as e:
+            print(f"✗ Fatal error in foot pedal: {e}")
+            traceback.print_exc()
+        finally:
+            print("⌨️  Foot pedal listener stopped.")
 
 
 def log_to_neuracore_on_change_callback(
@@ -182,13 +305,15 @@ if __name__ == "__main__":
     ).start()
     threading.Thread(target=camera_thread, args=(data_manager,), daemon=True).start()
 
-    # Foot Pedal Initialization
+    # Foot Pedal – started as a daemon thread, callbacks wired inline
     print("\n⌨️  Initializing Foot Pedals...")
-    pedal = FootPedal()
-    pedal.on("activate", toggle_robot_state)
-    pedal.on("home", move_robot_home)
-    pedal.on("record", toggle_recording)
-    pedal.start()
+    pedal = FootPedal(data_manager)
+    pedal.on_button_a = toggle_robot_state
+    pedal.on_button_b = move_robot_home
+    pedal.on_button_c = toggle_recording
+
+    pedal_thread = threading.Thread(target=pedal.run, daemon=True)
+    pedal_thread.start()
 
     print("\n✅ SYSTEM ONLINE")
     print("------------------------------------------------------------")
@@ -202,7 +327,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n👋 Shutting down...")
     finally:
-        pedal.stop()
+        pedal_thread.join(timeout=1.0)
         if nc.is_recording():
             nc.cancel_recording()
         nc.logout()
