@@ -17,6 +17,7 @@ import neuracore as nc
 import numpy as np
 from neuracore_types import (
     BatchedJointData,
+    BatchedNCData,
     BatchedParallelGripperOpenAmountData,
     DataType,
 )
@@ -26,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.configs import (
     CAMERA_FRAME_STREAMING_RATE,
-    CAMERA_LOGGING_NAME,
+    CAMERA_NAMES,
     CONTROLLER_BETA,
     CONTROLLER_D_CUTOFF,
     CONTROLLER_DATA_RATE,
@@ -34,7 +35,7 @@ from common.configs import (
     DAMPING_COST,
     FRAME_TASK_GAIN,
     GRIPPER_FRAME_NAME,
-    GRIPPER_LOGGING_NAME,
+    GRIPPER_NAME,
     IK_SOLVER_RATE,
     JOINT_NAMES,
     JOINT_STATE_STREAMING_RATE,
@@ -57,41 +58,42 @@ from common.configs import (
 from common.data_manager import DataManager, RobotActivityState
 from common.policy_state import PolicyState
 from common.robot_visualizer import RobotVisualizer
-from common.threads.camera import camera_thread
 from common.threads.ik_solver import ik_solver_thread
 from common.threads.joint_state import joint_state_thread
 from common.threads.quest_reader import quest_reader_thread
+from common.threads.realsense_camera import camera_thread
 from meta_quest_teleop.reader import MetaQuestReader
 
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
 
+# NOTE: JOINT_NAMES is the order used by the URDF / robot controller.
+# MODEL_JOINT_NAMES is the order used by the Neuracore model.
+MODEL_JOINT_NAMES = ["joint6", "joint4", "joint5", "joint2", "joint1", "joint3"]
 
-def convert_predictions_to_horizon_dict(predictions: dict) -> dict[str, list[float]]:
-    """Convert predictions dict to horizon dict format."""
-    horizon: dict[str, list[float]] = {}
 
-    # Extract joint target positions
+def convert_predictions_to_horizon(
+    predictions: dict[DataType, dict[str, BatchedNCData]],
+) -> dict[str, list[float]]:
+    """Convert predictions to horizon dict."""
+    horizon = {}
     if DataType.JOINT_TARGET_POSITIONS in predictions:
         joint_data = predictions[DataType.JOINT_TARGET_POSITIONS]
         for joint_name in JOINT_NAMES:
             if joint_name in joint_data:
                 batched = joint_data[joint_name]
                 if isinstance(batched, BatchedJointData):
-                    # Extract values: (B, T, 1) -> list[float], taking B=0
                     values = batched.value[0, :, 0].cpu().numpy().tolist()
                     horizon[joint_name] = values
 
     # Extract gripper open amounts
     if DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in predictions:
         gripper_data = predictions[DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS]
-        if GRIPPER_LOGGING_NAME in gripper_data:
-            batched = gripper_data[GRIPPER_LOGGING_NAME]
+        if GRIPPER_NAME in gripper_data:
+            batched = gripper_data[GRIPPER_NAME]
             if isinstance(batched, BatchedParallelGripperOpenAmountData):
-                # Extract values: (B, T, 1) -> list[float], taking B=0
                 values = batched.open_amount[0, :, 0].cpu().numpy().tolist()
-                horizon[GRIPPER_LOGGING_NAME] = values
-
+                horizon[GRIPPER_NAME] = values
     return horizon
 
 
@@ -169,20 +171,24 @@ def run_policy(
     if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in model_input_order:
         gripper_open_value = data_manager.get_current_gripper_open_value()
         if gripper_open_value is not None:
-            nc.log_parallel_gripper_open_amount(
-                GRIPPER_LOGGING_NAME, gripper_open_value
-            )
+            nc.log_parallel_gripper_open_amount(GRIPPER_NAME, gripper_open_value)
             print("  ✓ Logged gripper open amount")
         else:
             print("  ⚠️  No gripper open value available")
 
     if DataType.RGB_IMAGES in model_input_order:
-        rgb_image = data_manager.get_rgb_image()
-        if rgb_image is not None:
-            nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
-            print("  ✓ Logged RGB image")
+        # Log all available cameras (payload as-is; reporter = this script)
+        logged_any_rgb = False
+        for camera_name in CAMERA_NAMES:
+            rgb_image = data_manager.get_rgb_image(camera_name)
+            if rgb_image is not None:
+                nc.log_rgb(camera_name, rgb_image)
+                logged_any_rgb = True
+        if logged_any_rgb:
+            print("  ✓ Logged RGB image(s)")
         else:
             print("  ⚠️  No RGB image available")
+        rgb_image = data_manager.get_rgb_image(CAMERA_NAMES[0])
 
     # Check if we have at least some data to run the policy
     if (
@@ -196,8 +202,8 @@ def run_policy(
     # Get policy prediction
     try:
         start_time = time.time()
-        predictions = policy.predict(timeout=5)
-        prediction_horizon = convert_predictions_to_horizon_dict(predictions)
+        predictions = policy.predict(timeout=60)
+        prediction_horizon = convert_predictions_to_horizon(predictions)
         end_time = time.time()
         horizon_length = policy_state.get_prediction_horizon_length()
         print(
@@ -476,10 +482,10 @@ def policy_execution_thread(
                         )
 
                 # Send current gripper open value to robot (if available)
-                if GRIPPER_LOGGING_NAME in locked_horizon:
-                    current_gripper_target_open_value = locked_horizon[
-                        GRIPPER_LOGGING_NAME
-                    ][execution_index]
+                if GRIPPER_NAME in locked_horizon:
+                    current_gripper_target_open_value = locked_horizon[GRIPPER_NAME][
+                        execution_index
+                    ]
                     robot_controller.set_gripper_open_value(
                         current_gripper_target_open_value
                     )
@@ -567,6 +573,11 @@ def update_visualization(
     if current_joint_angles is not None:
         joint_config_rad = np.radians(current_joint_angles)
         visualizer.update_robot_pose(joint_config_rad)
+
+    # Update RGB camera image in Viser GUI (if available)
+    rgb_image = data_manager.get_rgb_image(CAMERA_NAMES[0])
+    if rgb_image is not None:
+        visualizer.update_rgb_image(rgb_image)
 
     # Get policy state for ghost robot
     prediction_horizon = policy_state.get_prediction_horizon()
@@ -707,13 +718,13 @@ if __name__ == "__main__":
     # This order is determined by the output_robot_data_spec in the training config.
     # The order here should match the order in your training config's output_robot_data_spec.
     model_input_order = {
-        DataType.JOINT_POSITIONS: JOINT_NAMES,
-        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
-        DataType.RGB_IMAGES: [CAMERA_LOGGING_NAME],
+        DataType.JOINT_POSITIONS: MODEL_JOINT_NAMES,
+        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_NAME],
+        DataType.RGB_IMAGES: [CAMERA_NAMES[0]],
     }
     model_output_order = {
-        DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
-        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
+        DataType.JOINT_TARGET_POSITIONS: MODEL_JOINT_NAMES,
+        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_NAME],
     }
 
     print("\n📋 Model input order:")

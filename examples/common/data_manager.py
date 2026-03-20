@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from .configs import GRIPPER_NAME, JOINT_NAMES
 from .one_euro_filter import OneEuroFilterTransform
 
 
@@ -54,6 +55,9 @@ class TeleopState:
         self.active: bool = False
         self.controller_initial_transform: np.ndarray | None = None
         self.robot_initial_transform: np.ndarray | None = None
+        # Teleoperation scaling parameters (how much controller motion maps to robot motion)
+        self.translation_scale: float = 1.0
+        self.rotation_scale: float = 1.0
 
 
 class RobotState:
@@ -84,13 +88,14 @@ class IKState:
 
 
 class CameraState:
-    """Camera state - RGB image, depth image, point cloud."""
+    """Camera state - RGB images for one or more cameras."""
 
     def __init__(self) -> None:
         """Initialize CameraState with default values."""
         self._lock = threading.Lock()
 
-        self.rgb_image: np.ndarray | None = None
+        # Map from camera name -> latest RGB image
+        self.rgb_images: dict[str, np.ndarray] = {}
 
 
 class DataManager:
@@ -116,12 +121,15 @@ class DataManager:
         # System state
         self._shutdown_event = threading.Event()
 
-        # Callback for state changes (RGB, target joints, current joints)
-        # the callable takes arguments: (stream_name: str, data: Any, timestamp: float)
-        self._on_change_callback: Callable[[str, Any, float], None] | None = None
+        # Callback for state changes (RGB, target joints, current joints).
+        # The callable takes (name: str, payload: dict[str, Any], timestamp: float).
+        # payload is the data dict e.g. {joint1: v, joint2: v}, {gripper: v}, {rgb_scene: array}.
+        self._on_change_callback: (
+            Callable[[str, dict[str, Any], float], None] | None
+        ) = None
 
     def set_on_change_callback(
-        self, on_change_callback: Callable[[str, Any, float], None]
+        self, on_change_callback: Callable[[str, dict[str, Any], float], None]
     ) -> None:
         """Set on change callback (thread-safe)."""
         self._on_change_callback = on_change_callback
@@ -130,23 +138,22 @@ class DataManager:
     # Camera State Methods
     # ============================================================================
 
-    def get_rgb_image(self) -> np.ndarray | None:
-        """Get RGB image (thread-safe)."""
+    def get_rgb_image(self, camera_name: str) -> np.ndarray | None:
+        """Get RGB image for a specific camera (thread-safe)."""
         with self._camera_state._lock:
-            return (
-                self._camera_state.rgb_image.copy()
-                if self._camera_state.rgb_image is not None
-                else None
-            )
+            if not self._camera_state.rgb_images:
+                return None
 
-    def set_rgb_image(self, image: np.ndarray) -> None:
-        """Set RGB image (thread-safe)."""
+            img = self._camera_state.rgb_images.get(camera_name)
+            return img.copy() if img is not None else None
+
+    def set_rgb_image(self, image: np.ndarray, camera_name: str) -> None:
+        """Set RGB image for a specific camera (thread-safe)."""
         with self._camera_state._lock:
-            self._camera_state.rgb_image = image.copy()
+            self._camera_state.rgb_images[camera_name] = image.copy()
         if self._on_change_callback:
-            self._on_change_callback(
-                "log_rgb", self._camera_state.rgb_image.copy(), time.time()
-            )
+            img_copy = self._camera_state.rgb_images[camera_name].copy()
+            self._on_change_callback("log_rgb", {camera_name: img_copy}, time.time())
 
     # ============================================================================
     # Controller State Methods
@@ -284,6 +291,35 @@ class DataManager:
                 robot_initial.copy() if robot_initial is not None else None
             )
 
+    def set_teleop_scaling(
+        self, translation_scale: float, rotation_scale: float
+    ) -> None:
+        """Set teleoperation scaling factors (thread-safe).
+
+        Args:
+            translation_scale: Scale applied to controller translation deltas
+            rotation_scale: Scale applied to controller rotation deltas
+        """
+        # Ignore invalid values (e.g. transient 0 while typing) and keep old scaling.
+        if translation_scale <= 0.0 or rotation_scale <= 0.0:
+            return
+
+        with self._teleop_state._lock:
+            self._teleop_state.translation_scale = translation_scale
+            self._teleop_state.rotation_scale = rotation_scale
+
+    def get_teleop_scaling(self) -> tuple[float, float]:
+        """Get teleoperation scaling factors (thread-safe).
+
+        Returns:
+            Tuple of (translation_scale, rotation_scale)
+        """
+        with self._teleop_state._lock:
+            return (
+                self._teleop_state.translation_scale,
+                self._teleop_state.rotation_scale,
+            )
+
     def get_teleop_active(self) -> bool:
         """Get teleoperation active state (thread-safe)."""
         with self._teleop_state._lock:
@@ -358,11 +394,12 @@ class DataManager:
         with self._robot_state._lock:
             self._robot_state.joint_angles = angles.copy()
         if self._on_change_callback:
-            self._on_change_callback(
-                "log_joint_positions",
-                self._robot_state.joint_angles.copy(),
-                time.time(),
-            )
+            angles = self._robot_state.joint_angles
+            if angles is not None:
+                payload = {
+                    jn: float(np.radians(angles[i])) for i, jn in enumerate(JOINT_NAMES)
+                }
+                self._on_change_callback("log_joint_positions", payload, time.time())
 
     def get_current_end_effector_pose(self) -> np.ndarray | None:
         """Get current end effector pose (thread-safe).
@@ -410,7 +447,7 @@ class DataManager:
         if self._on_change_callback:
             self._on_change_callback(
                 "log_parallel_gripper_open_amounts",
-                value,
+                {GRIPPER_NAME: value},
                 time.time(),
             )
 
@@ -434,7 +471,7 @@ class DataManager:
         if self._on_change_callback:
             self._on_change_callback(
                 "log_parallel_gripper_target_open_amounts",
-                self._robot_state.target_gripper_open_value,
+                {GRIPPER_NAME: self._robot_state.target_gripper_open_value},
                 time.time(),
             )
 
@@ -464,11 +501,14 @@ class DataManager:
         with self._ik_state._lock:
             self._ik_state.target_joint_angles = angles.copy()
         if self._on_change_callback:
-            self._on_change_callback(
-                "log_joint_target_positions",
-                self._ik_state.target_joint_angles.copy(),
-                time.time(),
-            )
+            angles = self._ik_state.target_joint_angles
+            if angles is not None:
+                payload = {
+                    jn: float(np.radians(angles[i])) for i, jn in enumerate(JOINT_NAMES)
+                }
+                self._on_change_callback(
+                    "log_joint_target_positions", payload, time.time()
+                )
 
     def set_target_pose(self, transform: np.ndarray | None) -> None:
         """Set target transform for visualization (thread-safe).

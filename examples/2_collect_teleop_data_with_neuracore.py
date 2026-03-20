@@ -13,6 +13,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
+from typing import Any
 
 import neuracore as nc
 import numpy as np
@@ -29,9 +30,7 @@ from common.configs import (
     DAMPING_COST,
     FRAME_TASK_GAIN,
     GRIPPER_FRAME_NAME,
-    GRIPPER_LOGGING_NAME,
     IK_SOLVER_RATE,
-    JOINT_NAMES,
     JOINT_STATE_STREAMING_RATE,
     LM_DAMPING,
     NEUTRAL_JOINT_ANGLES,
@@ -44,10 +43,10 @@ from common.configs import (
     URDF_PATH,
 )
 from common.data_manager import DataManager, RobotActivityState
-from common.threads.camera import camera_thread
 from common.threads.ik_solver import ik_solver_thread
 from common.threads.joint_state import joint_state_thread
 from common.threads.quest_reader import quest_reader_thread
+from common.threads.realsense_camera import camera_thread as realsense_camera_thread
 from meta_quest_teleop.reader import MetaQuestReader
 
 from pink_ik_solver import PinkIKSolver
@@ -55,32 +54,22 @@ from piper_controller import PiperController
 
 
 def log_to_neuracore_on_change_callback(
-    name: str, value: float, timestamp: float
+    name: str, payload: dict[str, Any], timestamp: float
 ) -> None:
     """Log data to queue on change callback."""
     # Call appropriate Neuracore logging function
     try:
         if name == "log_joint_positions":
-            data_value = np.radians(value)
-            data_dict = {
-                joint_name: angle for joint_name, angle in zip(JOINT_NAMES, data_value)
-            }
-            nc.log_joint_positions(data_dict, timestamp=timestamp)
+            nc.log_joint_positions(payload, timestamp=timestamp)
         elif name == "log_joint_target_positions":
-            data_value = np.radians(value)
-            data_dict = {
-                joint_name: angle for joint_name, angle in zip(JOINT_NAMES, data_value)
-            }
-            nc.log_joint_target_positions(data_dict, timestamp=timestamp)
+            nc.log_joint_target_positions(payload, timestamp=timestamp)
         elif name == "log_parallel_gripper_open_amounts":
-            data_dict = {GRIPPER_LOGGING_NAME: value}
-            nc.log_parallel_gripper_open_amounts(data_dict, timestamp=timestamp)
+            nc.log_parallel_gripper_open_amounts(payload, timestamp=timestamp)
         elif name == "log_parallel_gripper_target_open_amounts":
-            data_dict = {GRIPPER_LOGGING_NAME: value}
-            nc.log_parallel_gripper_target_open_amounts(data_dict, timestamp=timestamp)
+            nc.log_parallel_gripper_target_open_amounts(payload, timestamp=timestamp)
         elif name == "log_rgb":
-            camera_name = "rgb"
-            image_array = value
+            camera_name = next(iter(payload))
+            image_array = payload[camera_name]
             nc.log_rgb(camera_name, image_array, timestamp=timestamp)
         else:
             print(f"\n⚠️  Unknown logging function: {name}")
@@ -278,12 +267,17 @@ if __name__ == "__main__":
     )
     ik_thread.start()
 
-    # Start camera thread (if RealSense is available)
-    print("\n📷 Starting camera thread...")
-    camera_thread_obj = threading.Thread(
-        target=camera_thread, args=(data_manager,), daemon=True
+    # Start cameras threads
+    print("\n📷 Starting cameras threads...")
+    realsense_camera_thread_obj = threading.Thread(
+        target=realsense_camera_thread, args=(data_manager,), daemon=True
     )
-    camera_thread_obj.start()
+    realsense_camera_thread_obj.start()
+
+    # usb_camera_thread_obj = threading.Thread(
+    #     target=usb_camera_thread, args=(data_manager,), daemon=True
+    # )
+    # usb_camera_thread_obj.start()
 
     print()
     print("🚀 Starting teleoperation with REAL ROBOT CONTROL...")
@@ -328,7 +322,8 @@ if __name__ == "__main__":
     quest_thread.join()
     quest_reader.stop()
     ik_thread.join()
-    camera_thread_obj.join()
+    realsense_camera_thread_obj.join()
+    # usb_camera_thread_obj.join()
     robot_controller.cleanup()
 
     print("\n👋 Demo stopped.")

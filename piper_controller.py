@@ -86,8 +86,8 @@ class PiperController:
             )
 
         # Gripper range in degrees (for internal SDK communication)
-        self.GRIPPER_DEGREES_MIN = -5.000
-        self.GRIPPER_DEGREES_MAX = 95.00
+        self.GRIPPER_DEGREES_MIN = -10.00
+        self.GRIPPER_DEGREES_MAX = 30.00
         self.GRIPPER_DEGREES_RANGE = self.GRIPPER_DEGREES_MAX - self.GRIPPER_DEGREES_MIN
 
         # Home gripper value in degrees
@@ -169,7 +169,9 @@ class PiperController:
         """Initialize robot connection and enable it."""
         print(f"Initializing robot on {self.can_interface}...")
         self.piper = C_PiperInterface_V2(
-            self.can_interface, start_sdk_joint_limit=True, start_sdk_gripper_limit=True
+            self.can_interface,
+            start_sdk_joint_limit=True,
+            start_sdk_gripper_limit=False,
         )
         self.piper.ConnectPort()
 
@@ -479,7 +481,7 @@ class PiperController:
                             self._send_end_effector_command(self._target_pose)
                         elif current_mode == PiperController.ControlMode.JOINT_SPACE:
                             # Send joint angles command
-                            self._send_joint_command(self._target_joint_angles)
+                            self._send_joint_command(self._target_joint_angles.copy())
 
                         # Always send gripper command regardless of control mode
                         self._send_gripper_command(self._gripper_open_value_degrees)

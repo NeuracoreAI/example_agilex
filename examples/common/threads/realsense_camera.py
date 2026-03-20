@@ -5,7 +5,7 @@ import traceback
 
 import numpy as np
 import pyrealsense2 as rs
-from common.configs import CAMERA_FRAME_STREAMING_RATE
+from common.configs import CAMERA_FRAME_STREAMING_RATE, CAMERA_NAMES
 from common.data_manager import DataManager
 
 
@@ -13,6 +13,7 @@ def camera_thread(data_manager: DataManager) -> None:
     """Camera thread - captures RGB images from RealSense."""
     print("📷 Camera thread started")
 
+    camera_name = CAMERA_NAMES[0]
     dt: float = 1.0 / CAMERA_FRAME_STREAMING_RATE
     pipeline: rs.pipeline | None = None
 
@@ -46,7 +47,7 @@ def camera_thread(data_manager: DataManager) -> None:
             if color_frame:
                 color_image = np.asanyarray(color_frame.get_data())
                 color_image = np.rot90(color_image, k=3)  # Rotate 270 degrees
-                data_manager.set_rgb_image(color_image)
+                data_manager.set_rgb_image(color_image, camera_name)
 
             # Sleep to maintain loop rate
             elapsed = time.time() - iteration_start

@@ -27,8 +27,8 @@ from neuracore_types import (
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.configs import (
-    CAMERA_LOGGING_NAME,
-    GRIPPER_LOGGING_NAME,
+    CAMERA_NAMES,
+    GRIPPER_NAME,
     JOINT_NAMES,
     NEUTRAL_JOINT_ANGLES,
     POLICY_EXECUTION_RATE,
@@ -38,8 +38,8 @@ from common.configs import (
 )
 from common.data_manager import DataManager, RobotActivityState
 from common.policy_state import PolicyState
-from common.threads.camera import camera_thread
 from common.threads.joint_state import joint_state_thread
+from common.threads.realsense_camera import camera_thread
 
 from piper_controller import PiperController
 
@@ -62,45 +62,42 @@ def convert_predictions_to_horizon_dict(predictions: dict) -> dict[str, list[flo
     # Extract gripper open amounts
     if DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in predictions:
         gripper_data = predictions[DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS]
-        if GRIPPER_LOGGING_NAME in gripper_data:
-            batched = gripper_data[GRIPPER_LOGGING_NAME]
+        if GRIPPER_NAME in gripper_data:
+            batched = gripper_data[GRIPPER_NAME]
             if isinstance(batched, BatchedParallelGripperOpenAmountData):
                 # Extract values: (B, T, 1) -> list[float], taking B=0
                 values = batched.open_amount[0, :, 0].cpu().numpy().tolist()
-                horizon[GRIPPER_LOGGING_NAME] = values
+                horizon[GRIPPER_NAME] = values
 
     return horizon
 
 
 def log_current_state(data_manager: DataManager) -> None:
-    """Log current state to Neuracore."""
+    """Log current state to Neuracore. Reporter: build payload (e.g. joints in radians), log as-is."""
     current_joint_angles = data_manager.get_current_joint_angles()
     if current_joint_angles is None:
         print("⚠️  No joint angles available")
         return
 
-    # Get current gripper open value
     gripper_open_value = data_manager.get_current_gripper_open_value()
     if gripper_open_value is None:
         print("⚠️  No gripper open value available")
         return
 
-    # Get current RGB image
-    rgb_image = data_manager.get_rgb_image()
-    if rgb_image is None:
-        print("⚠️  No RGB image available")
-        return
-
-    # Prepare data for Neuracore logging
+    # Reporter: convert to radians for Neuracore
     joint_angles_rad = np.radians(current_joint_angles)
     joint_positions_dict = {
-        joint_name: angle for joint_name, angle in zip(JOINT_NAMES, joint_angles_rad)
+        joint_name: float(angle)
+        for joint_name, angle in zip(JOINT_NAMES, joint_angles_rad)
     }
-
-    # Log joint positions, parallel gripper open amounts, and RGB image to Neuracore
     nc.log_joint_positions(joint_positions_dict)
-    nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_open_value)
-    nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
+    nc.log_parallel_gripper_open_amount(GRIPPER_NAME, gripper_open_value)
+
+    # Log all available cameras as-is
+    for camera_name in CAMERA_NAMES:
+        rgb_image = data_manager.get_rgb_image(camera_name)
+        if rgb_image is not None:
+            nc.log_rgb(camera_name, rgb_image)
 
 
 def run_policy(
@@ -160,8 +157,8 @@ def execute_horizon(
             robot_controller.set_target_joint_angles(current_joint_target_positions_deg)
 
         # Send current gripper open value to robot (if available)
-        if GRIPPER_LOGGING_NAME in locked_horizon:
-            current_gripper_target_open_value = locked_horizon[GRIPPER_LOGGING_NAME][i]
+        if GRIPPER_NAME in locked_horizon:
+            current_gripper_target_open_value = locked_horizon[GRIPPER_NAME][i]
             robot_controller.set_gripper_open_value(current_gripper_target_open_value)
 
         # Log current state for visualization
@@ -230,12 +227,12 @@ if __name__ == "__main__":
     # The order here should match the order in your training config's output_robot_data_spec.
     model_input_order = {
         DataType.JOINT_POSITIONS: JOINT_NAMES,
-        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
-        DataType.RGB_IMAGES: [CAMERA_LOGGING_NAME],
+        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_NAME],
+        DataType.RGB_IMAGES: [CAMERA_NAMES[0]],
     }
     model_output_order = {
         DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
-        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
+        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_NAME],
     }
 
     print("\n📋 Model input order:")

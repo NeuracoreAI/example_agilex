@@ -9,7 +9,7 @@ import numpy as np
 
 # Add parent directory to path to import pink_ik_solver
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from common.configs import IK_SOLVER_RATE, ROTATION_SCALE, TRANSLATION_SCALE
+from common.configs import IK_SOLVER_RATE
 from common.data_manager import DataManager, RobotActivityState
 from common.utils import scale_and_add_delta_transform
 
@@ -83,11 +83,14 @@ def ik_solver_thread(data_manager: DataManager, ik_solver: PinkIKSolver) -> None
                     controller_transform[:3, :3] @ controller_initial[:3, :3].T
                 )
 
+                # Get current teleop scaling factors (from GUI via DataManager)
+                translation_scale, rotation_scale = data_manager.get_teleop_scaling()
+
                 T_robot_target = scale_and_add_delta_transform(
                     delta_position,
                     delta_orientation,
-                    TRANSLATION_SCALE,
-                    ROTATION_SCALE,
+                    translation_scale,
+                    rotation_scale,
                     robot_initial,
                 )
 

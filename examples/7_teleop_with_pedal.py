@@ -16,13 +16,10 @@ from typing import Any
 import neuracore as nc
 import numpy as np
 
-# Add parent directory to path
+# Add parent directory to path to import pink_ik_solver and piper_controller
 sys.path.insert(0, str(Path(__file__).parent.parent))
-# Add neuracore path for local imports if needed
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "neuracore"))
 
-
-from common.configs import (  # noqa: E402
+from common.configs import (
     CONTROLLER_BETA,
     CONTROLLER_D_CUTOFF,
     CONTROLLER_MIN_CUTOFF,
@@ -34,24 +31,17 @@ from common.configs import (  # noqa: E402
     ROBOT_RATE,
     URDF_PATH,
 )
-from common.data_manager import DataManager, RobotActivityState  # noqa: E402
-from common.threads.camera import camera_thread  # noqa: E402
-from common.threads.foot_pedal import FootPedal  # noqa: E402
-from common.threads.ik_solver import ik_solver_thread  # noqa: E402
-from common.threads.joint_state import joint_state_thread  # noqa: E402
-from common.threads.quest_reader import quest_reader_thread  # noqa: E402
-from meta_quest_teleop.reader import MetaQuestReader  # noqa: E402
+from common.data_manager import DataManager, RobotActivityState
+from common.foot_pedal import FootPedal
+from common.threads.camera import camera_thread
+from common.threads.ik_solver import ik_solver_thread
+from common.threads.joint_state import joint_state_thread
+from common.threads.quest_reader import quest_reader_thread
+from meta_quest_teleop.reader import MetaQuestReader
 
-from pink_ik_solver import PinkIKSolver  # noqa: E402
-from piper_controller import PiperController  # noqa: E402
+from pink_ik_solver import PinkIKSolver
+from piper_controller import PiperController
 
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# Foot Pedal Configuration - Edit these to match your hardware
-#   ENABLE_DISABLE_PEDAL -> Toggle robot ENABLE / DISABLE
-#   HOME_POSITION_PEDAL  -> Move robot to HOME position
-#   RECORD_TOGGLE_PEDAL  -> Toggle data recording (Matches Quest RJ)
-# ---------------------------------------------------------------------------
 ENABLE_DISABLE_PEDAL = "a"
 HOME_POSITION_PEDAL = "b"
 RECORD_TOGGLE_PEDAL = "c"
@@ -241,18 +231,19 @@ if __name__ == "__main__":
     # Foot Pedal – started as a daemon thread, callbacks wired inline
     print("\n⌨️  Initializing Foot Pedals...")
     pedal = FootPedal(
-        data_manager,
         key_map={
             "button_a": ENABLE_DISABLE_PEDAL,
             "button_b": HOME_POSITION_PEDAL,
             "button_c": RECORD_TOGGLE_PEDAL,
         },
     )
-    pedal.on_button_a = toggle_robot_state
-    pedal.on_button_b = move_robot_home
-    pedal.on_button_c = toggle_recording
+    pedal.bind("button_a", toggle_robot_state)
+    pedal.bind("button_b", move_robot_home)
+    pedal.bind("button_c", toggle_recording)
 
-    pedal_thread = threading.Thread(target=pedal.run, daemon=True)
+    pedal_thread = threading.Thread(
+        target=pedal.run_loop, args=(data_manager,), daemon=True
+    )
     pedal_thread.start()
 
     print("\n✅ SYSTEM ONLINE")

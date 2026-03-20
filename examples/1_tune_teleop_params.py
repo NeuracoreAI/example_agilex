@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.configs import (
     CAMERA_FRAME_STREAMING_RATE,
+    CAMERA_NAMES,
     CONTROLLER_BETA,
     CONTROLLER_D_CUTOFF,
     CONTROLLER_DATA_RATE,
@@ -32,6 +33,7 @@ from common.configs import (
     IK_SOLVER_RATE,
     JOINT_STATE_STREAMING_RATE,
     LM_DAMPING,
+    META_QUEST_AXIS_MASK,
     NEUTRAL_JOINT_ANGLES,
     ORIENTATION_COST,
     POSITION_COST,
@@ -46,10 +48,10 @@ from common.configs import (
 )
 from common.data_manager import DataManager, RobotActivityState
 from common.robot_visualizer import RobotVisualizer
-from common.threads.camera import camera_thread
 from common.threads.ik_solver import ik_solver_thread
 from common.threads.joint_state import joint_state_thread
 from common.threads.quest_reader import quest_reader_thread
+from common.threads.realsense_camera import camera_thread
 from meta_quest_teleop.reader import MetaQuestReader
 
 from pink_ik_solver import PinkIKSolver
@@ -146,7 +148,12 @@ joint_state_thread_obj.start()
 
 # Initialize Meta Quest reader
 print("\n🎮 Initializing Meta Quest reader...")
-quest_reader = MetaQuestReader(ip_address=args.ip_address, port=5555, run=True)
+quest_reader = MetaQuestReader(
+    ip_address=args.ip_address,
+    port=5555,
+    run=True,
+    axis_mask=META_QUEST_AXIS_MASK,
+)
 
 # Register button callbacks (after state and robot_controller are initialized)
 quest_reader.on("button_a_pressed", on_button_a_pressed)
@@ -206,6 +213,8 @@ visualizer.add_teleop_controls()
 visualizer.add_gripper_status_controls()
 visualizer.add_homing_controls()
 visualizer.add_toggle_robot_enabled_status_button()
+visualizer.add_rgb_image_placeholder()
+visualizer.add_target_frame_visualization()
 visualizer.add_controller_filter_controls(
     initial_min_cutoff=CONTROLLER_MIN_CUTOFF,
     initial_beta=CONTROLLER_BETA,
@@ -225,7 +234,6 @@ visualizer.add_pink_parameter_controls(
     posture_cost_vector=POSTURE_COST_VECTOR,
 )
 visualizer.add_controller_visualization()
-visualizer.add_target_frame_visualization()
 
 
 # Set up button callbacks
@@ -292,9 +300,10 @@ try:
         min_cutoff, beta, d_cutoff = visualizer.get_controller_filter_params()
         data_manager.set_controller_filter_params(min_cutoff, beta, d_cutoff)
 
-        # Update scaling factors (module-level variables used by IK thread)
-        TRANSLATION_SCALE = visualizer.get_translation_scale()
-        ROTATION_SCALE = visualizer.get_rotation_scale()
+        # Update scaling factors (shared with IK thread via DataManager)
+        translation_scale = visualizer.get_translation_scale()
+        rotation_scale = visualizer.get_rotation_scale()
+        data_manager.set_teleop_scaling(translation_scale, rotation_scale)
 
         # Update Pink parameters (GUI controls)
         pink_params = visualizer.get_pink_parameters()
@@ -312,6 +321,7 @@ try:
         solve_time_ms = data_manager.get_ik_solve_time_ms()
         ik_success = data_manager.get_ik_success()
         target_pose = data_manager.get_target_pose()
+        rgb_image = data_manager.get_rgb_image(CAMERA_NAMES[0])
 
         # Update GUI displays
         visualizer.set_grip_value(grip_value)
@@ -331,6 +341,10 @@ try:
 
         # Update teleop status display
         visualizer.update_teleop_status(teleop_active)
+
+        # Update RGB camera image in Viser GUI (if available)
+        if rgb_image is not None:
+            visualizer.update_rgb_image(rgb_image)
 
         # Update target/goal visualization
         visualizer.update_target_visualization(target_pose)

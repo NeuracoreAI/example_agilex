@@ -29,11 +29,14 @@ from viser.extras import ViserUrdf
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.configs import (
-    CAMERA_LOGGING_NAME,
-    GRIPPER_LOGGING_NAME,
+    CAMERA_NAMES,
+    GRIPPER_NAME,
     JOINT_NAMES,
+    POLICY_EXECUTION_RATE,
     URDF_PATH,
 )
+
+MODEL_JOINT_NAMES = ["joint6", "joint4", "joint5", "joint2", "joint1", "joint3"]
 
 # Parse arguments
 parser = argparse.ArgumentParser(
@@ -54,7 +57,10 @@ policy_group.add_argument(
     help="Name of remote Neuracore policy endpoint to use instead of a local policy.",
 )
 parser.add_argument(
-    "--frequency", type=int, default=100, help="Frequency of visualization"
+    "--frequency",
+    type=int,
+    default=POLICY_EXECUTION_RATE,
+    help="Frequency of visualization",
 )
 args = parser.parse_args()
 
@@ -65,13 +71,13 @@ nc.connect_robot(robot_name="AgileX PiPER", urdf_path=str(URDF_PATH), overwrite=
 
 # Load policy
 model_input_order = {
-    DataType.JOINT_POSITIONS: JOINT_NAMES,
-    DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
-    DataType.RGB_IMAGES: [CAMERA_LOGGING_NAME],
+    # DataType.JOINT_POSITIONS: MODEL_JOINT_NAMES,
+    # DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_NAME],
+    DataType.RGB_IMAGES: [CAMERA_NAMES[0]],
 }
 model_output_order = {
-    DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
-    DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_LOGGING_NAME],
+    DataType.JOINT_TARGET_POSITIONS: MODEL_JOINT_NAMES,
+    DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_NAME],
 }
 
 if args.remote_endpoint_name:
@@ -143,6 +149,7 @@ urdf_vis.update_cfg(np.zeros(len(JOINT_NAMES)))
 current_horizon = None
 current_action_idx = 0
 playing = False
+rgb_gui_handle = None
 
 
 def convert_predictions_to_horizon(
@@ -160,17 +167,17 @@ def convert_predictions_to_horizon(
                     horizon[joint_name] = values
     if DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in predictions:
         gripper_data = predictions[DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS]
-        if GRIPPER_LOGGING_NAME in gripper_data:
-            batched = gripper_data[GRIPPER_LOGGING_NAME]
+        if GRIPPER_NAME in gripper_data:
+            batched = gripper_data[GRIPPER_NAME]
             if isinstance(batched, BatchedParallelGripperOpenAmountData):
                 values = batched.open_amount[0, :, 0].cpu().numpy().tolist()
-                horizon[GRIPPER_LOGGING_NAME] = values
+                horizon[GRIPPER_NAME] = values
     return horizon
 
 
 def select_random_state() -> None:
     """Select random state and run policy."""
-    global current_horizon, current_action_idx, playing
+    global current_horizon, current_action_idx, playing, rgb_gui_handle
 
     # Select random episode and step
     episode_idx = random.randint(0, len(synced_dataset) - 1)
@@ -197,31 +204,47 @@ def select_random_state() -> None:
     gripper_value = 1.0
     if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in step.data:
         gripper_data = step.data[DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS]
-        if GRIPPER_LOGGING_NAME in gripper_data:
-            gripper_value = gripper_data[GRIPPER_LOGGING_NAME].open_amount
+        if GRIPPER_NAME in gripper_data:
+            gripper_value = gripper_data[GRIPPER_NAME].open_amount
             # Log to Neuracore for visualization
-            nc.log_parallel_gripper_open_amount(GRIPPER_LOGGING_NAME, gripper_value)
+            nc.log_parallel_gripper_open_amount(GRIPPER_NAME, gripper_value)
 
     # Extract RGB image
     rgb_image = None
     if DataType.RGB_IMAGES in step.data:
         rgb_data = step.data[DataType.RGB_IMAGES]
-        if CAMERA_LOGGING_NAME in rgb_data:
-            rgb_image = np.array(rgb_data[CAMERA_LOGGING_NAME].frame)
-            # Save image to file for visualization
+        if CAMERA_NAMES[0] in rgb_data:
+            rgb_image = np.array(rgb_data[CAMERA_NAMES[0]].frame)
             image_pil = Image.fromarray(rgb_image)
             image_pil.save("current_image.png")
             print("💾 Saved image to current_image.png")
+            if rgb_gui_handle is None:
+                rgb_gui_handle = server.gui.add_image(
+                    rgb_image,
+                    label="RGB (current step)",
+                    format="jpeg",
+                    jpeg_quality=85,
+                )
+            else:
+                rgb_gui_handle.image = rgb_image
             # Log to Neuracore for visualization
-            nc.log_rgb(CAMERA_LOGGING_NAME, rgb_image)
-
+            nc.log_rgb(CAMERA_NAMES[0], rgb_image)
     # Get policy prediction
     print("🎯 Getting policy prediction...")
-    predictions = policy.predict(timeout=5)
+    start_time = time.time()
+    try:
+        predictions = policy.predict(timeout=60)
+    except nc.EndpointError as e:
+        print(f"✗ Failed to get policy prediction: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return
+    duration = time.time() - start_time
     current_horizon = convert_predictions_to_horizon(predictions)
     current_action_idx = 0
     playing = True
-    print("FINISHED PREDICTION")
+    print(f"FINISHED PREDICTION in {duration:.3f} s")
 
     # Update robot to initial pose from first step in the horizon
 
@@ -229,7 +252,7 @@ def select_random_state() -> None:
     urdf_vis.update_cfg(joint_positions)
 
     print(
-        f"✅ Prediction received: {len(current_horizon.get(JOINT_NAMES[0], []))} actions"
+        f"✅ Prediction received: {len(current_horizon.get(MODEL_JOINT_NAMES[0], []))} actions"
     )
 
 
@@ -289,9 +312,7 @@ try:
                 nc.log_joint_positions(joint_config_dict)
 
                 # Update gripper value
-                gripper_value = current_horizon[GRIPPER_LOGGING_NAME][
-                    current_action_idx
-                ]
+                gripper_value = current_horizon[GRIPPER_NAME][current_action_idx]
                 gripper_handle.value = round(
                     gripper_value, 2
                 )  # Round to 2 decimal places

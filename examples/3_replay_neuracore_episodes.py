@@ -10,7 +10,7 @@ import cv2
 import neuracore as nc
 import numpy as np
 from common.configs import (
-    GRIPPER_LOGGING_NAME,
+    GRIPPER_NAME,
     JOINT_NAMES,
     NEUTRAL_JOINT_ANGLES,
     ROBOT_RATE,
@@ -140,8 +140,8 @@ def main() -> None:
                     gripper_data = step.data[
                         DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS
                     ]
-                    if GRIPPER_LOGGING_NAME in gripper_data:
-                        gripper_value = gripper_data[GRIPPER_LOGGING_NAME].open_amount
+                    if GRIPPER_NAME in gripper_data:
+                        gripper_value = gripper_data[GRIPPER_NAME].open_amount
                 parallel_gripper_open_amounts.append(gripper_value)
 
                 # Extract RGB for all cameras

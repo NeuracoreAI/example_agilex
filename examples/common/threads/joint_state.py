@@ -45,12 +45,10 @@ def joint_state_thread(
                     print("✓ Robot reached home position and is re-enabled")
 
             elif robot_activity_state == RobotActivityState.ENABLED:
-                if (
-                    target_joint_angles is not None
-                    and trigger_value is not None
-                    and data_manager.get_teleop_active()
-                ):
+                if target_joint_angles is not None and data_manager.get_teleop_active():
                     robot_controller.set_target_joint_angles(target_joint_angles)
+
+                if trigger_value is not None:
                     target_gripper_open_value = 1.0 - trigger_value
                     data_manager.set_target_gripper_open_value(
                         target_gripper_open_value

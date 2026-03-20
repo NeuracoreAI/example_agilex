@@ -82,6 +82,7 @@ class RobotVisualizer:
         # Visualization handles
         self._controller_handle = None
         self._target_frame_handle = None
+        self._rgb_image_handle = None
 
         # Policy-related handles
         self._policy_status_handle = None
@@ -132,6 +133,37 @@ class RobotVisualizer:
         self._gripper_status_handle = self._server.gui.add_text(
             "Gripper Status", "Open (0%)"
         )
+
+    def add_rgb_image_placeholder(self, height: int = 480, width: int = 640) -> None:
+        """Add an RGB image placeholder in the desired GUI position.
+
+        This reserves a fixed location for the camera feed; the actual image
+        data will be injected later via update_rgb_image.
+        """
+        if self._rgb_image_handle is not None:
+            return
+
+        dummy_image = np.zeros((height, width, 3), dtype=np.uint8)
+        self._rgb_image_handle = self._server.gui.add_image(
+            dummy_image,
+            label="RGB Camera",
+            format="jpeg",
+            jpeg_quality=85,
+        )
+
+    def update_rgb_image(self, rgb_image: np.ndarray | None) -> None:
+        """Show or update RGB camera image in the Viser GUI."""
+        if rgb_image is None:
+            return
+        if self._rgb_image_handle is None:
+            # Fallback: if placeholder wasn't created, create it now
+            self.add_rgb_image_placeholder(
+                height=rgb_image.shape[0], width=rgb_image.shape[1]
+            )
+        rgb_handle = self._rgb_image_handle
+        if rgb_handle is None:
+            return
+        rgb_handle.image = rgb_image
 
     def add_homing_controls(self) -> None:
         """Add homing controls."""
