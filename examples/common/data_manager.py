@@ -68,6 +68,7 @@ class RobotState:
         self._lock = threading.Lock()
 
         self.joint_angles: np.ndarray | None = None
+        self.joint_torques: np.ndarray | None = None
         self.end_effector_pose: np.ndarray | None = None
         self.current_gripper_open_value: float | None = None
         self.target_gripper_open_value: float | None = None
@@ -400,6 +401,33 @@ class DataManager:
                     jn: float(np.radians(angles[i])) for i, jn in enumerate(JOINT_NAMES)
                 }
                 self._on_change_callback("log_joint_positions", payload, time.time())
+
+    def get_current_joint_torques(self) -> np.ndarray | None:
+        """Get current joint torques/currents proxy (thread-safe).
+
+        Returns:
+            Current joint torques/currents vector or None if not available
+        """
+        with self._robot_state._lock:
+            return (
+                self._robot_state.joint_torques.copy()
+                if self._robot_state.joint_torques is not None
+                else None
+            )
+
+    def set_current_joint_torques(self, torques: np.ndarray) -> None:
+        """Set current joint torques/currents proxy and log to NeuraCore.
+
+        Args:
+            torques: np.ndarray - current joint torques/currents vector
+        """
+        with self._robot_state._lock:
+            self._robot_state.joint_torques = torques.copy()
+        if self._on_change_callback:
+            torques = self._robot_state.joint_torques
+            if torques is not None:
+                payload = {jn: float(torques[i]) for i, jn in enumerate(JOINT_NAMES)}
+                self._on_change_callback("log_joint_torques", payload, time.time())
 
     def get_current_end_effector_pose(self) -> np.ndarray | None:
         """Get current end effector pose (thread-safe).

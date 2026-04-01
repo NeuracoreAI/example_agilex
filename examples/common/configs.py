@@ -30,8 +30,8 @@ CONTROLLER_D_CUTOFF = 0.9  # Derivative cutoff frequency
 GRIP_THRESHOLD = 0.9  # Grip value threshold to activate control
 
 # Scaling factors for translation and rotation
-TRANSLATION_SCALE = 3.0
-ROTATION_SCALE = 2.0
+TRANSLATION_SCALE = 1.0
+ROTATION_SCALE = 1.0
 
 # Thread rates (Hz)
 CONTROLLER_DATA_RATE = 50.0  # Controller input reading
@@ -44,7 +44,7 @@ JOINT_STATE_STREAMING_RATE = 100.0  # Data collection rate for neuracore
 CAMERA_FRAME_STREAMING_RATE = 60.0  # Data collection rate for camera frame
 
 # Meta quest axis mask
-META_QUEST_AXIS_MASK = [1, 1, 1, 0, 0, 0]  # [x, y, z, roll, pitch, yaw]
+META_QUEST_AXIS_MASK = [1, 1, 1, 1, 1, 1]  # [x, y, z, roll, pitch, yaw]
 
 # USB webcam (OpenCV) configuration
 CAMERA_DEVICE_INDEX = 5  # 0 = first camera, 1 = second, etc.

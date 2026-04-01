@@ -710,6 +710,29 @@ class PiperController:
                     print(f"Failed to get current joint angles: {e}")
         return None
 
+    def get_current_joint_currents(self) -> np.ndarray | None:
+        """Get the current measured motor currents from the robot, if available.
+
+        Returns:
+            numpy array or None: [m1, m2, m3, m4, m5, m6] in amps, or None if unavailable
+        """
+        if hasattr(self, "piper") and self.piper is not None:
+            try:
+                high_spd_msg = self.piper.GetArmHighSpdInfoMsgs()
+                if high_spd_msg:
+                    # Current is reported in 0.001A units per motor
+                    motors = []
+                    for i in range(1, 7):
+                        motor = getattr(high_spd_msg, f"motor_{i}", None)
+                        if motor is None:
+                            return None
+                        motors.append(motor.current / 1000.0)
+                    return np.array(motors, dtype=np.float64)
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"Failed to get current motor currents: {e}")
+        return None
+
     def get_current_gripper_open_value(self) -> float | None:
         """Get the current measured gripper open value from the robot, if available.
 
@@ -746,6 +769,7 @@ class PiperController:
                 "gripper_open_value": self.get_gripper_open_value(),
                 "current_end_pose": self.get_current_end_effector_pose(),
                 "current_joint_angles": self.get_current_joint_angles(),
+                "current_joint_currents": self.get_current_joint_currents(),
                 "current_gripper_open_value": self.get_current_gripper_open_value(),
             }
             return status
@@ -760,6 +784,7 @@ class PiperController:
                 "gripper_open_value": None,
                 "current_end_pose": None,
                 "current_joint_angles": None,
+                "current_joint_currents": None,
                 "current_gripper_open_value": None,
             }
 

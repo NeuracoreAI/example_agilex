@@ -67,10 +67,6 @@ from meta_quest_teleop.reader import MetaQuestReader
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
 
-# NOTE: JOINT_NAMES is the order used by the URDF / robot controller.
-# MODEL_JOINT_NAMES is the order used by the Neuracore model.
-MODEL_JOINT_NAMES = ["joint6", "joint4", "joint5", "joint2", "joint1", "joint3"]
-
 
 def convert_predictions_to_horizon(
     predictions: dict[DataType, dict[str, BatchedNCData]],
@@ -702,7 +698,7 @@ if __name__ == "__main__":
     print(f"  🤖 Robot Controller: {ROBOT_RATE} Hz")
     print(f"  📸 Camera Frame:     {CAMERA_FRAME_STREAMING_RATE} Hz")
     print(f"  📊 Joint State:      {JOINT_STATE_STREAMING_RATE} Hz")
-    print(f"  🖥️  Visualization:    {VISUALIZATION_RATE} Hz")
+    print(f"  🖥️  Visualization:   {VISUALIZATION_RATE} Hz")
 
     # Connect to Neuracore
     print("\n🔧 Initializing Neuracore...")
@@ -713,17 +709,28 @@ if __name__ == "__main__":
         overwrite=False,
     )
 
-    # Load policy from either train run name or model path
-    # NOTE: The model_output_order MUST match the exact order used during training
-    # This order is determined by the output_robot_data_spec in the training config.
-    # The order here should match the order in your training config's output_robot_data_spec.
+    # Load policy
     model_input_order = {
-        DataType.JOINT_POSITIONS: MODEL_JOINT_NAMES,
+        DataType.JOINT_POSITIONS: [
+            "joint2",
+            "joint5",
+            "joint4",
+            "joint3",
+            "joint1",
+            "joint6",
+        ],
         DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_NAME],
         DataType.RGB_IMAGES: [CAMERA_NAMES[0]],
     }
     model_output_order = {
-        DataType.JOINT_TARGET_POSITIONS: MODEL_JOINT_NAMES,
+        DataType.JOINT_TARGET_POSITIONS: [
+            "joint2",
+            "joint5",
+            "joint4",
+            "joint3",
+            "joint1",
+            "joint6",
+        ],
         DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_NAME],
     }
 

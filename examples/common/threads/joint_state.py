@@ -29,6 +29,11 @@ def joint_state_thread(
             if current_joint_angles is not None:
                 data_manager.set_current_joint_angles(current_joint_angles)
 
+            # Use measured joint currents as torque proxy for NeuraCore logging
+            current_joint_currents = robot_controller.get_current_joint_currents()
+            if current_joint_currents is not None:
+                data_manager.set_current_joint_torques(current_joint_currents)
+
             # Get current gripper open value and set in state
             gripper_open_value = robot_controller.get_current_gripper_open_value()
             if gripper_open_value is not None:
@@ -48,7 +53,7 @@ def joint_state_thread(
                 if target_joint_angles is not None and data_manager.get_teleop_active():
                     robot_controller.set_target_joint_angles(target_joint_angles)
 
-                if trigger_value is not None:
+                if trigger_value is not None and data_manager.get_teleop_active():
                     target_gripper_open_value = 1.0 - trigger_value
                     data_manager.set_target_gripper_open_value(
                         target_gripper_open_value

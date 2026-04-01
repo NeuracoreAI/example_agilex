@@ -61,6 +61,8 @@ def log_to_neuracore_on_change_callback(
     try:
         if name == "log_joint_positions":
             nc.log_joint_positions(payload, timestamp=timestamp)
+        elif name == "log_joint_torques":
+            nc.log_joint_torques(payload, timestamp=timestamp)
         elif name == "log_joint_target_positions":
             nc.log_joint_target_positions(payload, timestamp=timestamp)
         elif name == "log_parallel_gripper_open_amounts":
@@ -293,14 +295,18 @@ if __name__ == "__main__":
     print()
 
     try:
-        while True:
+        while not data_manager.is_shutdown_requested():
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n👋 Interrupt received - shutting down gracefully...")
+        data_manager.request_shutdown()
     except Exception as e:
         print(f"\n❌ Demo error. Exception: {e}")
         print("Traceback:")
         traceback.print_exc()
+        data_manager.request_shutdown()
+    else:
+        print("\n⚠️  Worker requested shutdown - cleaning up...")
     # Cleanup
     print("\n🧹 Cleaning up...")
 
@@ -315,15 +321,16 @@ if __name__ == "__main__":
             print("Traceback:")
             traceback.print_exc()
 
-    # shutdown threads
-    nc.logout()
+    # shutdown threads and data producers before logging out
     data_manager.request_shutdown()
     data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
-    quest_thread.join()
     quest_reader.stop()
+    quest_thread.join()
+    joint_state_thread_obj.join()
     ik_thread.join()
     realsense_camera_thread_obj.join()
     # usb_camera_thread_obj.join()
+    nc.logout()
     robot_controller.cleanup()
 
     print("\n👋 Demo stopped.")
