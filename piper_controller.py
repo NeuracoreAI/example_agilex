@@ -477,11 +477,23 @@ class PiperController:
         Only sends commands when robot is in ENABLED state.
         """
         loop_period = 1.0 / self.robot_rate
+        # Re-enable heartbeat every 1 second to recover from robot self-disable
+        reenable_interval = 1.0
+        last_reenable_time = time.time()
 
         while self.running.is_set():
             try:
                 # Only send commands if robot is enabled
                 if self.is_robot_enabled():
+                    now = time.time()
+                    # Periodically re-send EnablePiper to keep hardware enabled
+                    # (robot firmware can self-disable on faults/limits)
+                    if now - last_reenable_time >= reenable_interval:
+                        if not self.piper.EnablePiper():
+                            if self.debug_mode:
+                                print("Control loop: EnablePiper re-enable returned False")
+                        last_reenable_time = now
+
                     # Get current control mode
                     current_mode = self.get_control_mode()
 

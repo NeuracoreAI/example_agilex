@@ -121,16 +121,18 @@ else
     
     # Set the interface bitrate and activate it.
     sudo ip link set "$INTERFACE_NAME" down
-    sudo ip link set "$INTERFACE_NAME" type can bitrate $DEFAULT_BITRATE
+    sudo ip link set "$INTERFACE_NAME" type can bitrate $DEFAULT_BITRATE restart-ms 100
     sudo ip link set "$INTERFACE_NAME" up
+    sudo ip link set "$INTERFACE_NAME" txqueuelen 1000
     echo "Interface $INTERFACE_NAME has been reset to bitrate $DEFAULT_BITRATE and activated."
-    
+
     # Rename the interface to the default name.
     if [ "$INTERFACE_NAME" != "$DEFAULT_CAN_NAME" ]; then
         echo "Rename interface $INTERFACE_NAME to $DEFAULT_CAN_NAME."
         sudo ip link set "$INTERFACE_NAME" down
         sudo ip link set "$INTERFACE_NAME" name "$DEFAULT_CAN_NAME"
         sudo ip link set "$DEFAULT_CAN_NAME" up
+        sudo ip link set "$DEFAULT_CAN_NAME" txqueuelen 1000
         echo "The interface has been renamed to $DEFAULT_CAN_NAME and reactivated."
     fi
 fi
