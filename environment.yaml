@@ -7,7 +7,7 @@ dependencies:
   - pip:
       - piper-sdk==0.6.1
       - pin
-      - pin-pink
+      - pin-pink==3.5.0
       - qpsolvers[quadprog]
       - yourdfpy
       - pure-python-adb

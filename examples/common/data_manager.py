@@ -58,6 +58,7 @@ class TeleopState:
         # Teleoperation scaling parameters (how much controller motion maps to robot motion)
         self.translation_scale: float = 1.0
         self.rotation_scale: float = 1.0
+        self.slow_scaling_mode_enabled: bool = False
 
 
 class RobotState:
@@ -325,6 +326,24 @@ class DataManager:
         """Get teleoperation active state (thread-safe)."""
         with self._teleop_state._lock:
             return self._teleop_state.active
+
+    def set_slow_scaling_mode_enabled(self, enabled: bool) -> None:
+        """Set slow-scaling mode status (thread-safe)."""
+        with self._teleop_state._lock:
+            self._teleop_state.slow_scaling_mode_enabled = enabled
+
+    def toggle_slow_scaling_mode_enabled(self) -> bool:
+        """Toggle and return slow-scaling mode status (thread-safe)."""
+        with self._teleop_state._lock:
+            self._teleop_state.slow_scaling_mode_enabled = (
+                not self._teleop_state.slow_scaling_mode_enabled
+            )
+            return self._teleop_state.slow_scaling_mode_enabled
+
+    def get_slow_scaling_mode_enabled(self) -> bool:
+        """Get slow-scaling mode status (thread-safe)."""
+        with self._teleop_state._lock:
+            return self._teleop_state.slow_scaling_mode_enabled
 
     def get_initial_robot_controller_transforms(
         self,

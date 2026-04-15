@@ -32,6 +32,9 @@ GRIP_THRESHOLD = 0.9  # Grip value threshold to activate control
 # Scaling factors for translation and rotation
 TRANSLATION_SCALE = 1.0
 ROTATION_SCALE = 1.0
+SLOW_TRANSLATION_SCALE = 0.6
+SLOW_ROTATION_SCALE = 0.6
+WRIST_JOINT_BUTTON_STEP_DEGREES = 5.0
 
 # Thread rates (Hz)
 CONTROLLER_DATA_RATE = 50.0  # Controller input reading
@@ -51,9 +54,10 @@ CAMERA_DEVICE_INDEX = 5  # 0 = first camera, 1 = second, etc.
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
 
-# # Initial neutral pose for robot (degrees)
+# # Initial neutral pose for robot (mm and degrees)
 # NEUTRAL_JOINT_ANGLES = [-1.003, 80.167, -51.064, -4.127, 16.548, 2.619]
 NEUTRAL_JOINT_ANGLES = [0.4, 112.3, -101.0, -2.6, 63.2, 18.3]
+NEUTRAL_END_EFFECTOR_POSE = [455.257, -46.344, 172.213, 176.205, -14.545, 29.621]
 
 # Posture task cost vector (one weight per joint)
 POSTURE_COST_VECTOR = [0.0, 0.0, 0.0, 0.05, 0.0, 0.0]

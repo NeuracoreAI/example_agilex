@@ -34,17 +34,21 @@ from common.configs import (
     JOINT_STATE_STREAMING_RATE,
     LM_DAMPING,
     META_QUEST_AXIS_MASK,
+    NEUTRAL_END_EFFECTOR_POSE,
     NEUTRAL_JOINT_ANGLES,
     ORIENTATION_COST,
     POSITION_COST,
     POSTURE_COST_VECTOR,
     ROBOT_RATE,
     ROTATION_SCALE,
+    SLOW_ROTATION_SCALE,
+    SLOW_TRANSLATION_SCALE,
     SOLVER_DAMPING_VALUE,
     SOLVER_NAME,
     TRANSLATION_SCALE,
     URDF_PATH,
     VISUALIZATION_RATE,
+    WRIST_JOINT_BUTTON_STEP_DEGREES,
 )
 from common.data_manager import DataManager, RobotActivityState
 from common.robot_visualizer import RobotVisualizer
@@ -62,7 +66,6 @@ def on_button_a_pressed() -> None:
     """Handle Button A press to toggle robot enable/disable state."""
     robot_activity_state = data_manager.get_robot_activity_state()
     if robot_activity_state == RobotActivityState.ENABLED:
-        # Disable robot
         data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
         robot_controller.graceful_stop()
         # Reset teleop state when disabling robot
@@ -92,6 +95,59 @@ def on_button_b_pressed() -> None:
             data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
     else:
         print("⚠️  Button B pressed but robot is not enabled")
+
+
+def _step_wrist_joint(delta_degrees: float) -> None:
+    """Apply a relative step to the wrist joint target angle."""
+    # Prevent IK teleop loop from overwriting this manual joint adjustment.
+    data_manager.set_teleop_state(False, None, None)
+    robot_controller.set_control_mode(PiperController.ControlMode.JOINT_SPACE)
+
+    target_joint_angles = robot_controller.get_target_joint_angles()
+    current_joint_angles = data_manager.get_current_joint_angles()
+    if current_joint_angles is not None:
+        base_wrist_joint_angle = float(current_joint_angles[-1])
+    else:
+        base_wrist_joint_angle = float(target_joint_angles[-1])
+
+    target_joint_angles[-1] = base_wrist_joint_angle + delta_degrees
+    robot_controller.set_target_joint_angles(target_joint_angles)
+    data_manager.set_target_joint_angles(target_joint_angles)
+
+
+def on_button_y_pressed() -> None:
+    """Handle Button Y press to add +5° on the wrist joint."""
+    robot_activity_state = data_manager.get_robot_activity_state()
+    if robot_activity_state != RobotActivityState.ENABLED:
+        print("⚠️  Button Y pressed but robot is not enabled")
+        return
+    _step_wrist_joint(WRIST_JOINT_BUTTON_STEP_DEGREES)
+
+
+def on_button_x_pressed() -> None:
+    """Handle Button X press to subtract -5° on the wrist joint."""
+    robot_activity_state = data_manager.get_robot_activity_state()
+    if robot_activity_state != RobotActivityState.ENABLED:
+        print("⚠️  Button X pressed but robot is not enabled")
+        return
+    _step_wrist_joint(-WRIST_JOINT_BUTTON_STEP_DEGREES)
+
+
+def on_button_lj_pressed() -> None:
+    """Toggle slow translation/rotation scaling mode from config values."""
+    slow_scaling_mode_enabled = data_manager.toggle_slow_scaling_mode_enabled()
+    if slow_scaling_mode_enabled:
+        print(
+            "🐢 Button LJ pressed - Slow scaling enabled "
+            f"(translation={SLOW_TRANSLATION_SCALE:.3f}, "
+            f"rotation={SLOW_ROTATION_SCALE:.3f})"
+        )
+    else:
+        print(
+            "🐇 Button LJ pressed - Slow scaling disabled "
+            f"(using GUI/default scales, currently translation={TRANSLATION_SCALE:.3f}, "
+            f"rotation={ROTATION_SCALE:.3f})"
+        )
 
 
 parser = argparse.ArgumentParser(
@@ -132,6 +188,8 @@ robot_controller = PiperController(
     robot_rate=ROBOT_RATE,
     control_mode=PiperController.ControlMode.JOINT_SPACE,
     neutral_joint_angles=NEUTRAL_JOINT_ANGLES,
+    neutral_end_effector_pose=NEUTRAL_END_EFFECTOR_POSE,
+    enable_joint_angle_limits=False,
     debug_mode=False,
 )
 
@@ -158,6 +216,9 @@ quest_reader = MetaQuestReader(
 # Register button callbacks (after state and robot_controller are initialized)
 quest_reader.on("button_a_pressed", on_button_a_pressed)
 quest_reader.on("button_b_pressed", on_button_b_pressed)
+quest_reader.on("button_y_pressed", on_button_y_pressed)
+quest_reader.on("button_x_pressed", on_button_x_pressed)
+quest_reader.on("button_lj_pressed", on_button_lj_pressed)
 
 # Start quest reader thread
 print("\n🎮 Starting quest reader thread...")
@@ -284,8 +345,11 @@ print("   2. Hold RIGHT GRIP to activate teleoperation")
 print("   3. Move controller - robot follows!")
 print("   4. Hold RIGHT TRIGGER to close gripper")
 print("   5. Press BUTTON B to send robot home (or use GUI)")
-print("   6. Release grip to stop")
-print("   7. Use 'Emergency Stop' in GUI if needed")
+print("   6. Press BUTTON Y to add +5° on the wrist joint")
+print("   7. Press BUTTON X to subtract 5° on the wrist joint")
+print("   8. Press LEFT JOYSTICK BUTTON to toggle slow scaling mode")
+print("   9. Release grip to stop")
+print("   10. Use 'Emergency Stop' in GUI if needed")
 print("⚠️  Press Ctrl+C to exit")
 print()
 
@@ -303,6 +367,9 @@ try:
         # Update scaling factors (shared with IK thread via DataManager)
         translation_scale = visualizer.get_translation_scale()
         rotation_scale = visualizer.get_rotation_scale()
+        if data_manager.get_slow_scaling_mode_enabled():
+            translation_scale = SLOW_TRANSLATION_SCALE
+            rotation_scale = SLOW_ROTATION_SCALE
         data_manager.set_teleop_scaling(translation_scale, rotation_scale)
 
         # Update Pink parameters (GUI controls)

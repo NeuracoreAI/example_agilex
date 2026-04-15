@@ -179,6 +179,22 @@ class PinkIKSolver:
 
         print("✅ Tasks configured!")
 
+    def _rebuild_end_effector_task(self) -> None:
+        """Recreate the FrameTask using current frame-task parameters.
+
+        Some Pink versions expose FrameTask parameters as read-only attributes.
+        Rebuilding the task is the safest way to apply runtime parameter updates.
+        """
+        assert self.configuration is not None, "Configuration must be initialized"
+        self.ee_task = FrameTask(
+            self.end_effector_frame,
+            position_cost=self.position_cost,
+            orientation_cost=self.orientation_cost,
+            lm_damping=self.lm_damping,
+            gain=self.frame_task_gain,
+        )
+        self.ee_task.set_target_from_configuration(self.configuration)
+
     def update_task_parameters(
         self,
         position_cost: float | None = None,
@@ -204,25 +220,26 @@ class PinkIKSolver:
         """
         assert self.ee_task is not None, "End effector task must be initialized"
         assert self.damping_task is not None, "Damping task must be initialized"
+        should_rebuild_ee_task = False
         if position_cost is not None:
             self.position_cost = position_cost
-            self.ee_task.position_cost = position_cost
+            should_rebuild_ee_task = True
 
         if orientation_cost is not None:
             self.orientation_cost = orientation_cost
-            self.ee_task.orientation_cost = orientation_cost
+            should_rebuild_ee_task = True
 
         if frame_task_gain is not None:
             self.frame_task_gain = frame_task_gain
-            self.ee_task.gain = frame_task_gain
+            should_rebuild_ee_task = True
 
         if lm_damping is not None:
             self.lm_damping = lm_damping
-            self.ee_task.lm_damping = lm_damping
+            should_rebuild_ee_task = True
 
         if damping_cost is not None:
             self.damping_cost = damping_cost
-            self.damping_task.cost = damping_cost
+            self.damping_task = DampingTask(cost=self.damping_cost)
 
         if solver_damping_value is not None:
             self.solver_damping_value = solver_damping_value
@@ -239,6 +256,9 @@ class PinkIKSolver:
             self.posture_cost_vector = np.array(posture_cost_vector).copy()
             assert self.posture_task is not None, "Posture task must be initialized"
             self.posture_task.cost = self.posture_cost_vector
+
+        if should_rebuild_ee_task:
+            self._rebuild_end_effector_task()
 
     def set_target_pose(self, position: np.ndarray, orientation: np.ndarray) -> None:
         """Set target pose from position and orientation.

@@ -325,6 +325,22 @@ class GUIRobotControl:
         )
         self.home_button.grid(row=0, column=1, padx=10)
 
+        # Copy current joint + gripper values to clipboard
+        self.copy_pose_button = ttk.Button(
+            button_frame,
+            text="Copy Joint+Gripper",
+            command=self._on_copy_joint_gripper_pressed,
+        )
+        self.copy_pose_button.grid(row=0, column=2, padx=10)
+
+        # Copy current end-effector pose to clipboard
+        self.copy_ee_position_button = ttk.Button(
+            button_frame,
+            text="Copy EE Pose",
+            command=self._on_copy_ee_position_pressed,
+        )
+        self.copy_ee_position_button.grid(row=0, column=3, padx=10)
+
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
@@ -714,6 +730,83 @@ class GUIRobotControl:
             self.status_label.config(text="Resuming robot...", foreground="orange")
             self.command_queue.put(("resume", None, None))
 
+        self.root.after(
+            2000, lambda: self.status_label.config(text="Ready", foreground="green")
+        )
+
+    def _on_copy_joint_gripper_pressed(self) -> None:
+        """Copy current joint positions and gripper value to clipboard."""
+        status = self.robot.get_robot_status()
+
+        joint_angles = status["current_joint_angles"]
+        if joint_angles is None:
+            joint_angles = status["target_joint_angles"]
+
+        gripper_value = status["current_gripper_open_value"]
+        if gripper_value is None:
+            gripper_value = status["gripper_open_value"]
+
+        if joint_angles is None or gripper_value is None:
+            self.status_label.config(
+                text="No joint/gripper data available to copy", foreground="red"
+            )
+            self.root.after(
+                2000, lambda: self.status_label.config(text="Ready", foreground="green")
+            )
+            return
+
+        joint_text = ", ".join(f"{float(angle):.3f}" for angle in joint_angles)
+        clipboard_text = (
+            f"joint_positions: {joint_text}\n"
+            f"gripper_value: {float(gripper_value):.3f}"
+        )
+
+        self.root.clipboard_clear()
+        self.root.clipboard_append(clipboard_text)
+        self.root.update()
+
+        self.status_label.config(
+            text="Copied joint positions and gripper to clipboard", foreground="blue"
+        )
+        self.root.after(
+            2000, lambda: self.status_label.config(text="Ready", foreground="green")
+        )
+
+    def _on_copy_ee_position_pressed(self) -> None:
+        """Copy current end-effector pose (XYZ + RPY) to clipboard."""
+        status = self.robot.get_robot_status()
+
+        pose = status["current_end_pose"]
+        if pose is None:
+            pose = status["target_pose"]
+
+        if pose is None:
+            self.status_label.config(
+                text="No end-effector pose available to copy", foreground="red"
+            )
+            self.root.after(
+                2000, lambda: self.status_label.config(text="Ready", foreground="green")
+            )
+            return
+
+        position = pose[:3, 3]
+        rotation = Rotation.from_matrix(pose[:3, :3]).as_euler("xyz", degrees=True)
+        clipboard_text = (
+            f"ee_position: x={float(position[0]):.3f}, "
+            f"y={float(position[1]):.3f}, "
+            f"z={float(position[2]):.3f}\n"
+            f"ee_rotation_xyz_deg: rx={float(rotation[0]):.3f}, "
+            f"ry={float(rotation[1]):.3f}, "
+            f"rz={float(rotation[2]):.3f}"
+        )
+
+        self.root.clipboard_clear()
+        self.root.clipboard_append(clipboard_text)
+        self.root.update()
+
+        self.status_label.config(
+            text="Copied end-effector pose to clipboard", foreground="blue"
+        )
         self.root.after(
             2000, lambda: self.status_label.config(text="Ready", foreground="green")
         )

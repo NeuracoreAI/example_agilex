@@ -29,20 +29,6 @@ def ik_solver_thread(data_manager: DataManager, ik_solver: PinkIKSolver) -> None
 
             # Get current robot joint angles from state
             current_joint_angles = data_manager.get_current_joint_angles()
-            current_ik_joint_angles = np.degrees(ik_solver.get_current_configuration())
-
-            # Sync IK solver with actual joint angles if close enough
-            if (
-                current_joint_angles is not None
-                and current_ik_joint_angles is not None
-                and np.all(
-                    np.abs(current_joint_angles - current_ik_joint_angles)
-                    <= DIVERGENCE_TOLERANCE
-                )
-            ):
-                ik_solver.set_configuration_no_task_update(
-                    np.radians(current_joint_angles)
-                )
 
             # Get current end effector pose from IK solver and set in state
             ik_ee_pose = ik_solver.get_current_end_effector_pose()
@@ -52,6 +38,26 @@ def ik_solver_thread(data_manager: DataManager, ik_solver: PinkIKSolver) -> None
             robot_activity_state = data_manager.get_robot_activity_state()
             controller_transform, _, _ = data_manager.get_controller_data()
             teleop_active = data_manager.get_teleop_active()
+
+            # Keep IK anchored to the real robot whenever teleop is not actively solving.
+            # This avoids stale IK state after manual joint commands (e.g., Button Y toggle).
+            if current_joint_angles is not None:
+                if not teleop_active:
+                    ik_solver.set_configuration_no_task_update(
+                        np.radians(current_joint_angles)
+                    )
+                else:
+                    current_ik_joint_angles = np.degrees(
+                        ik_solver.get_current_configuration()
+                    )
+                    # During active teleop, only hard-sync when IK and hardware are already close.
+                    if current_ik_joint_angles is not None and np.all(
+                        np.abs(current_joint_angles - current_ik_joint_angles)
+                        <= DIVERGENCE_TOLERANCE
+                    ):
+                        ik_solver.set_configuration_no_task_update(
+                            np.radians(current_joint_angles)
+                        )
 
             # Skip teleop-based IK if in POLICY_CONTROLLED state
             # NOTE: During policy execution, the policy execution thread manages target joint angles

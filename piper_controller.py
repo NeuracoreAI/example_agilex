@@ -29,8 +29,9 @@ class PiperController:
         can_interface: str = "can0",
         robot_rate: float = 100.0,
         control_mode: "PiperController.ControlMode" = ControlMode.JOINT_SPACE,
-        neutral_joint_angles: np.ndarray | None = None,
-        neutral_end_effector_pose: np.ndarray | None = None,
+        enable_joint_angle_limits: bool = True,
+        neutral_joint_angles: np.ndarray | list[float] | None = None,
+        neutral_end_effector_pose: np.ndarray | list[float] | None = None,
         debug_mode: bool = False,
     ) -> None:
         """Initialize the robot controller.
@@ -39,13 +40,15 @@ class PiperController:
             can_interface: CAN interface for robot communication (default: 'can0')
             robot_rate: Robot control loop rate in Hz (default: 100.0)
             control_mode: Initial control mode (END_EFFECTOR or JOINT_SPACE)
+            enable_joint_angle_limits: Enable SDK + software joint angle limits (default: True)
             neutral_joint_angles: Neutral joint angles [j1, j2, j3, j4, j5, j6] in degrees (default: None)
-            neutral_end_effector_pose: Neutral end effector pose as 4x4 transformation matrix (default: None)
+            neutral_end_effector_pose: Neutral end effector 6D pose [x, y, z, rx, ry, rz] in mm/degrees (default: None)
             debug_mode: Enable debug logging (default: False)
         """
         self.can_interface = can_interface
         self.robot_rate = robot_rate
         self.debug_mode = debug_mode
+        self.enable_joint_angle_limits = enable_joint_angle_limits
 
         # Thread synchronization
         self.position_lock = threading.Lock()
@@ -65,11 +68,12 @@ class PiperController:
 
         # HOME positions in end effector space and joint space
         if neutral_end_effector_pose is not None:
-            if neutral_end_effector_pose.shape == (4, 4):
-                self.HOME_POSE = neutral_end_effector_pose.copy().astype(np.float64)
+            neutral_pose_6d = np.array(neutral_end_effector_pose, dtype=np.float64)
+            if neutral_pose_6d.shape == (6,):
+                self.HOME_POSE = self._pose_6d_to_4x4(neutral_pose_6d)
             else:
                 raise ValueError(
-                    "neutral_end_effector_pose must be a 4x4 transformation matrix"
+                    "neutral_end_effector_pose must be a 6D pose [x, y, z, rx, ry, rz]"
                 )
         else:
             # Convert default 6D pose to 4x4 matrix
@@ -170,7 +174,7 @@ class PiperController:
         print(f"Initializing robot on {self.can_interface}...")
         self.piper = C_PiperInterface_V2(
             self.can_interface,
-            start_sdk_joint_limit=True,
+            start_sdk_joint_limit=self.enable_joint_angle_limits,
             start_sdk_gripper_limit=False,
         )
         self.piper.ConnectPort()
@@ -399,12 +403,15 @@ class PiperController:
         with self.position_lock:
             angles = np.array(joint_angles, dtype=np.float64)
 
-            # Clamp joint angles to limits using numpy
-            clamped_angles = np.clip(
-                angles, self.JOINT_LIMITS[:, 0], self.JOINT_LIMITS[:, 1]
-            )
+            if self.enable_joint_angle_limits:
+                # Clamp joint angles to limits using numpy
+                target_angles = np.clip(
+                    angles, self.JOINT_LIMITS[:, 0], self.JOINT_LIMITS[:, 1]
+                )
+            else:
+                target_angles = angles
 
-            self._target_joint_angles = clamped_angles
+            self._target_joint_angles = target_angles
 
             if self.debug_mode:
                 print(f"Target joint angles set: {self._target_joint_angles}")
@@ -419,10 +426,13 @@ class PiperController:
             deltas = np.array(joint_deltas, dtype=np.float64)
             new_joint_angles = self._target_joint_angles + deltas
 
-            # Clamp joint angles to limits using numpy
-            self._target_joint_angles = np.clip(
-                new_joint_angles, self.JOINT_LIMITS[:, 0], self.JOINT_LIMITS[:, 1]
-            )
+            if self.enable_joint_angle_limits:
+                # Clamp joint angles to limits using numpy
+                self._target_joint_angles = np.clip(
+                    new_joint_angles, self.JOINT_LIMITS[:, 0], self.JOINT_LIMITS[:, 1]
+                )
+            else:
+                self._target_joint_angles = new_joint_angles
 
             if self.debug_mode:
                 print(f"Joint angles updated: {self._target_joint_angles}")
@@ -764,6 +774,7 @@ class PiperController:
             status = {
                 "enabled": self.is_robot_enabled(),
                 "control_mode": self.get_control_mode(),
+                "joint_angle_limits_enabled": self.enable_joint_angle_limits,
                 "target_pose": self.get_target_pose(),
                 "target_joint_angles": self.get_target_joint_angles(),
                 "gripper_open_value": self.get_gripper_open_value(),
@@ -779,6 +790,7 @@ class PiperController:
             return {
                 "enabled": None,
                 "control_mode": None,
+                "joint_angle_limits_enabled": None,
                 "target_pose": None,
                 "target_joint_angles": None,
                 "gripper_open_value": None,
