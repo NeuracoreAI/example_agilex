@@ -33,14 +33,21 @@ from common.configs import (
     IK_SOLVER_RATE,
     JOINT_STATE_STREAMING_RATE,
     LM_DAMPING,
+    META_QUEST_AXIS_MASK,
+    NEUTRAL_END_EFFECTOR_POSE,
     NEUTRAL_JOINT_ANGLES,
     ORIENTATION_COST,
     POSITION_COST,
     POSTURE_COST_VECTOR,
     ROBOT_RATE,
+    ROTATION_SCALE,
+    SLOW_ROTATION_SCALE,
+    SLOW_TRANSLATION_SCALE,
     SOLVER_DAMPING_VALUE,
     SOLVER_NAME,
+    TRANSLATION_SCALE,
     URDF_PATH,
+    WRIST_JOINT_BUTTON_STEP_DEGREES,
 )
 from common.data_manager import DataManager, RobotActivityState
 from common.threads.ik_solver import ik_solver_thread
@@ -139,6 +146,61 @@ def on_button_rj_pressed() -> None:
             traceback.print_exc()
 
 
+def _step_wrist_joint(delta_degrees: float) -> None:
+    """Apply a relative step to the wrist joint target angle."""
+    # Prevent IK teleop loop from overwriting this manual joint adjustment.
+    data_manager.set_teleop_state(False, None, None)
+    robot_controller.set_control_mode(PiperController.ControlMode.JOINT_SPACE)
+
+    target_joint_angles = robot_controller.get_target_joint_angles()
+    current_joint_angles = data_manager.get_current_joint_angles()
+    if current_joint_angles is not None:
+        base_wrist_joint_angle = float(current_joint_angles[-1])
+    else:
+        base_wrist_joint_angle = float(target_joint_angles[-1])
+
+    target_joint_angles[-1] = base_wrist_joint_angle + delta_degrees
+    robot_controller.set_target_joint_angles(target_joint_angles)
+    data_manager.set_target_joint_angles(target_joint_angles)
+
+
+def on_button_y_pressed() -> None:
+    """Handle Button Y press to add +5° on the wrist joint."""
+    robot_activity_state = data_manager.get_robot_activity_state()
+    if robot_activity_state != RobotActivityState.ENABLED:
+        print("⚠️  Button Y pressed but robot is not enabled")
+        return
+    _step_wrist_joint(WRIST_JOINT_BUTTON_STEP_DEGREES)
+
+
+def on_button_x_pressed() -> None:
+    """Handle Button X press to subtract -5° on the wrist joint."""
+    robot_activity_state = data_manager.get_robot_activity_state()
+    if robot_activity_state != RobotActivityState.ENABLED:
+        print("⚠️  Button X pressed but robot is not enabled")
+        return
+    _step_wrist_joint(-WRIST_JOINT_BUTTON_STEP_DEGREES)
+
+
+def on_button_lj_pressed() -> None:
+    """Toggle slow translation/rotation scaling mode from config values."""
+    slow_scaling_mode_enabled = data_manager.toggle_slow_scaling_mode_enabled()
+    if slow_scaling_mode_enabled:
+        data_manager.set_teleop_scaling(SLOW_TRANSLATION_SCALE, SLOW_ROTATION_SCALE)
+        print(
+            "🐢 Button LJ pressed - Slow scaling enabled "
+            f"(translation={SLOW_TRANSLATION_SCALE:.3f}, "
+            f"rotation={SLOW_ROTATION_SCALE:.3f})"
+        )
+    else:
+        data_manager.set_teleop_scaling(TRANSLATION_SCALE, ROTATION_SCALE)
+        print(
+            "🐇 Button LJ pressed - Slow scaling disabled "
+            f"(translation={TRANSLATION_SCALE:.3f}, "
+            f"rotation={ROTATION_SCALE:.3f})"
+        )
+
+
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
 
@@ -196,6 +258,7 @@ if __name__ == "__main__":
         CONTROLLER_BETA,
         CONTROLLER_D_CUTOFF,
     )
+    data_manager.set_teleop_scaling(TRANSLATION_SCALE, ROTATION_SCALE)
 
     # Initialize robot controller
     print("\n🤖 Initializing Piper robot controller...")
@@ -204,6 +267,8 @@ if __name__ == "__main__":
         robot_rate=ROBOT_RATE,
         control_mode=PiperController.ControlMode.JOINT_SPACE,
         neutral_joint_angles=NEUTRAL_JOINT_ANGLES,
+        neutral_end_effector_pose=NEUTRAL_END_EFFECTOR_POSE,
+        enable_joint_angle_limits=False,
         debug_mode=False,
     )
 
@@ -224,12 +289,16 @@ if __name__ == "__main__":
         ip_address=args.ip_address,
         port=5555,
         run=True,
+        axis_mask=META_QUEST_AXIS_MASK,
     )
 
     # Register button callbacks (after state and robot_controller are initialized)
     quest_reader.on("button_a_pressed", on_button_a_pressed)
     quest_reader.on("button_b_pressed", on_button_b_pressed)
     quest_reader.on("button_rj_pressed", on_button_rj_pressed)
+    quest_reader.on("button_y_pressed", on_button_y_pressed)
+    quest_reader.on("button_x_pressed", on_button_x_pressed)
+    quest_reader.on("button_lj_pressed", on_button_lj_pressed)
 
     # Start data collection thread
     print("\n🎮 Starting quest reader thread...")
@@ -290,7 +359,10 @@ if __name__ == "__main__":
     print("   4. Hold RIGHT TRIGGER to close gripper")
     print("   5. Press BUTTON B to send robot home")
     print("   6. Press RIGHT JOYSTICK to start/stop data recording")
-    print("   7. Release grip to stop")
+    print("   7. Press BUTTON Y to add +5° on the wrist joint")
+    print("   8. Press BUTTON X to subtract 5° on the wrist joint")
+    print("   9. Press LEFT JOYSTICK BUTTON to toggle slow scaling mode")
+    print("   10. Release grip to stop")
     print("⚠️  Press Ctrl+C to exit")
     print()
 
