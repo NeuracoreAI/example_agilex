@@ -17,10 +17,13 @@ from pathlib import Path
 
 import neuracore as nc
 import numpy as np
+from neuracore.ml.preprocessing.methods.resize_pad import ResizePad
+from neuracore.ml.utils.preprocessing_utils import PreprocessingConfiguration
 from neuracore_types import (
     BatchedJointData,
     BatchedParallelGripperOpenAmountData,
     DataType,
+    EmbodimentDescription,
 )
 
 # Add parent directory to path
@@ -42,6 +45,12 @@ from common.threads.joint_state import joint_state_thread
 from common.threads.realsense_camera import camera_thread
 
 from piper_controller import PiperController
+
+
+def _embodiment_names_ordered(spec: list[str] | dict[int, str]) -> list[str]:
+    if isinstance(spec, dict):
+        return [spec[i] for i in sorted(spec)]
+    return list(spec)
 
 
 def convert_predictions_to_horizon_dict(predictions: dict) -> dict[str, list[float]]:
@@ -195,6 +204,12 @@ if __name__ == "__main__":
         help="Name of remote Neuracore policy endpoint.",
     )
     parser.add_argument(
+        "--robot-name",
+        type=str,
+        default="AgileX PiPER",
+        help="Neuracore robot name (policy embodiment resolution).",
+    )
+    parser.add_argument(
         "--frequency",
         type=int,
         default=POLICY_EXECUTION_RATE,
@@ -216,31 +231,31 @@ if __name__ == "__main__":
     print("\n🔧 Initializing Neuracore...")
     nc.login()
     nc.connect_robot(
-        robot_name="AgileX PiPER",
+        robot_name=args.robot_name,
         urdf_path=str(URDF_PATH),
         overwrite=False,
     )
 
-    # Load policy
-    # NOTE: The model_output_order MUST match the exact order used during training
-    # This order is determined by the output_robot_data_spec in the training config.
-    # The order here should match the order in your training config's output_robot_data_spec.
-    model_input_order = {
+    # Load policy (cross-embodiment + preprocessing; same pattern as example 6)
+    input_embodiment_description: EmbodimentDescription = {
         DataType.JOINT_POSITIONS: JOINT_NAMES,
         DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_NAME],
         DataType.RGB_IMAGES: [CAMERA_NAMES[0]],
     }
-    model_output_order = {
+    output_embodiment_description: EmbodimentDescription = {
         DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
         DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_NAME],
     }
+    input_preprocessing_config: PreprocessingConfiguration = {
+        DataType.RGB_IMAGES: [ResizePad(size=(224, 224))],
+    }
 
-    print("\n📋 Model input order:")
-    for data_type, names in model_input_order.items():
-        print(f"  {data_type.name}: {names}")
-    print("\n📋 Model output order:")
-    for data_type, names in model_output_order.items():
-        print(f"  {data_type.name}: {names}")
+    print("\n📋 Input embodiment description:")
+    for data_type, spec in input_embodiment_description.items():
+        print(f"  {data_type.name}: {_embodiment_names_ordered(spec)}")
+    print("\n📋 Output embodiment description:")
+    for data_type, spec in output_embodiment_description.items():
+        print(f"  {data_type.name}: {_embodiment_names_ordered(spec)}")
 
     if args.remote_endpoint_name is not None:
         print(
@@ -258,16 +273,20 @@ if __name__ == "__main__":
         print(f"\n🤖 Loading policy from training run: {args.train_run_name}...")
         policy = nc.policy(
             train_run_name=args.train_run_name,
-            model_input_order=model_input_order,
-            model_output_order=model_output_order,
+            input_embodiment_description=input_embodiment_description,
+            output_embodiment_description=output_embodiment_description,
+            input_preprocessing_config=input_preprocessing_config,
+            robot_name=args.robot_name,
         )
     else:
         print(f"\n🤖 Loading policy from model file: {args.model_path}...")
         policy = nc.policy(
             model_file=args.model_path,
             device="cuda",
-            model_input_order=model_input_order,
-            model_output_order=model_output_order,
+            input_embodiment_description=input_embodiment_description,
+            output_embodiment_description=output_embodiment_description,
+            input_preprocessing_config=input_preprocessing_config,
+            robot_name=args.robot_name,
         )
     print("  ✓ Policy loaded successfully")
 

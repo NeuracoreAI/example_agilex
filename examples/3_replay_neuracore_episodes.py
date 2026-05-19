@@ -15,7 +15,14 @@ from common.configs import (
     NEUTRAL_JOINT_ANGLES,
     ROBOT_RATE,
 )
-from neuracore_types import DataType, RobotDataSpec, SynchronizedPoint
+from neuracore.core.utils.robot_data_spec_utils import (
+    merge_cross_embodiment_description,
+)
+from neuracore_types import (
+    CrossEmbodimentDescription,
+    DataType,
+    SynchronizedPoint,
+)
 from tqdm import tqdm
 
 # Add parent directory to path to piper_controller
@@ -53,29 +60,37 @@ def main() -> None:
     print("\n🔍 Getting dataset from Neuracore...")
     dataset = nc.get_dataset(args.dataset_name)
 
-    # Build robot_data_spec for synchronization
-    print("\n🔁 Building robot data spec for synchronization...")
-    data_types_to_synchronize = [
+    # Cross-embodiment sync (same pattern as examples/6_visualize_policy_from_dataset.py)
+    print("\n🔁 Building cross_embodiment_union for synchronization...")
+    input_modalities: list[DataType] = [
         DataType.JOINT_POSITIONS,
-        DataType.JOINT_TARGET_POSITIONS,
         DataType.RGB_IMAGES,
         DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS,
+    ]
+    output_modalities: list[DataType] = [
+        DataType.JOINT_TARGET_POSITIONS,
         DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS,
     ]
-    robot_data_spec: RobotDataSpec = {}
-    robot_ids_dataset = dataset.robot_ids
-    for robot_id in robot_ids_dataset:
-        data_type_to_names = dataset.get_full_data_spec(robot_id)
-        robot_data_spec[robot_id] = {
-            data_type: data_type_to_names[data_type]
-            for data_type in data_types_to_synchronize
+    input_cross_embodiment_description: CrossEmbodimentDescription = {}
+    output_cross_embodiment_description: CrossEmbodimentDescription = {}
+    for robot_id in dataset.robot_ids:
+        full = dataset.get_full_embodiment_description(robot_id)
+        input_cross_embodiment_description[robot_id] = {
+            dt: full[dt] for dt in input_modalities if dt in full
         }
+        output_cross_embodiment_description[robot_id] = {
+            dt: full[dt] for dt in output_modalities if dt in full
+        }
+    cross_embodiment_union = merge_cross_embodiment_description(
+        input_cross_embodiment_description,
+        output_cross_embodiment_description,
+    )
 
     # Synchronize dataset
     print("\n🔁 Synchronizing dataset...")
     synced_dataset = dataset.synchronize(
         frequency=args.frequency,
-        robot_data_spec=robot_data_spec,
+        cross_embodiment_union=cross_embodiment_union,
     )
 
     # Determine which episodes to play

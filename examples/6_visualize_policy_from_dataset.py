@@ -15,12 +15,17 @@ import neuracore as nc
 import numpy as np
 import viser
 import yourdfpy
+from neuracore.core.utils.robot_data_spec_utils import (
+    merge_cross_embodiment_description,
+)
+from neuracore.ml.preprocessing.methods.resize_pad import ResizePad
+from neuracore.ml.utils.preprocessing_utils import PreprocessingConfiguration
 from neuracore_types import (
     BatchedJointData,
     BatchedNCData,
     BatchedParallelGripperOpenAmountData,
     DataType,
-    RobotDataSpec,
+    EmbodimentDescription,
 )
 from PIL import Image
 from viser.extras import ViserUrdf
@@ -35,8 +40,6 @@ from common.configs import (
     POLICY_EXECUTION_RATE,
     URDF_PATH,
 )
-
-MODEL_JOINT_NAMES = ["joint6", "joint4", "joint5", "joint2", "joint1", "joint3"]
 
 # Parse arguments
 parser = argparse.ArgumentParser(
@@ -62,22 +65,32 @@ parser.add_argument(
     default=POLICY_EXECUTION_RATE,
     help="Frequency of visualization",
 )
+parser.add_argument(
+    "--robot-name",
+    type=str,
+    default="AgileX PiPER",
+    help="Name of the robot to use",
+)
 args = parser.parse_args()
 
 # Connect to Neuracore
 print("🔧 Initializing Neuracore...")
 nc.login()
-nc.connect_robot(robot_name="AgileX PiPER", urdf_path=str(URDF_PATH), overwrite=False)
+nc.connect_robot(robot_name=args.robot_name, urdf_path=str(URDF_PATH), overwrite=False)
 
-# Load policy
-model_input_order = {
-    # DataType.JOINT_POSITIONS: MODEL_JOINT_NAMES,
-    # DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_NAME],
+input_embodiment_description: EmbodimentDescription = {
+    DataType.JOINT_POSITIONS: JOINT_NAMES,
+    DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_NAME],
     DataType.RGB_IMAGES: [CAMERA_NAMES[0]],
 }
-model_output_order = {
-    DataType.JOINT_TARGET_POSITIONS: MODEL_JOINT_NAMES,
+output_embodiment_description: EmbodimentDescription = {
+    DataType.JOINT_TARGET_POSITIONS: JOINT_NAMES,
     DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_NAME],
+}
+
+
+input_preprocessing_config: PreprocessingConfiguration = {
+    DataType.RGB_IMAGES: [ResizePad(size=(224, 224))],
 }
 
 if args.remote_endpoint_name:
@@ -95,16 +108,20 @@ elif args.train_run_name:
     policy = nc.policy(
         train_run_name=args.train_run_name,
         device="cuda",
-        model_input_order=model_input_order,
-        model_output_order=model_output_order,
+        input_embodiment_description=input_embodiment_description,
+        output_embodiment_description=output_embodiment_description,
+        input_preprocessing_config=input_preprocessing_config,
+        robot_name=args.robot_name,
     )
 else:
     print(f"🤖 Loading policy from model file: {args.model_path}...")
     policy = nc.policy(
         model_file=args.model_path,
         device="cuda",
-        model_input_order=model_input_order,
-        model_output_order=model_output_order,
+        input_embodiment_description=input_embodiment_description,
+        output_embodiment_description=output_embodiment_description,
+        input_preprocessing_config=input_preprocessing_config,
+        robot_name=args.robot_name,
     )
 print("  ✓ Policy loaded")
 
@@ -113,23 +130,17 @@ print(f"🔍 Loading dataset: {args.dataset_name}...")
 dataset = nc.get_dataset(args.dataset_name)
 print(f"  ✓ Dataset loaded: {len(dataset)} episodes")
 
-# Get data types from model input and output
-required_data_types = set(model_input_order.keys()) | set(model_output_order.keys())
-
-# Filter data spec to only include required data types
-robot_data_spec: RobotDataSpec = {
-    robot_id: {
-        data_type: names
-        for data_type, names in dataset.get_full_data_spec(robot_id).items()
-        if data_type in required_data_types
-    }
-    for robot_id in dataset.robot_ids
-}
+input_cross_embodiment_description = {args.robot_name: input_embodiment_description}
+output_cross_embodiment_description = {args.robot_name: output_embodiment_description}
+cross_embodiment_union = merge_cross_embodiment_description(
+    input_cross_embodiment_description,
+    output_cross_embodiment_description,
+)
 
 print("🔁 Synchronizing dataset...")
 synced_dataset = dataset.synchronize(
     frequency=args.frequency,
-    robot_data_spec=robot_data_spec,
+    cross_embodiment_union=cross_embodiment_union,
     prefetch_videos=True,
     max_prefetch_workers=2,
 )
@@ -251,9 +262,8 @@ def select_random_state() -> None:
     joint_positions = np.array([current_horizon[jn][0] for jn in JOINT_NAMES])
     urdf_vis.update_cfg(joint_positions)
 
-    print(
-        f"✅ Prediction received: {len(current_horizon.get(MODEL_JOINT_NAMES[0], []))} actions"
-    )
+    horizon_len = len(current_horizon.get(JOINT_NAMES[0], []))
+    print(f"✅ Prediction received: {horizon_len} actions")
 
 
 # Add button

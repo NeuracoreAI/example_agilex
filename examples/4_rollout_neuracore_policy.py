@@ -15,11 +15,14 @@ from pathlib import Path
 
 import neuracore as nc
 import numpy as np
+from neuracore.ml.preprocessing.methods.resize_pad import ResizePad
+from neuracore.ml.utils.preprocessing_utils import PreprocessingConfiguration
 from neuracore_types import (
     BatchedJointData,
     BatchedNCData,
     BatchedParallelGripperOpenAmountData,
     DataType,
+    EmbodimentDescription,
 )
 
 # Add parent directory to path to import pink_ik_solver and piper_controller
@@ -66,6 +69,13 @@ from meta_quest_teleop.reader import MetaQuestReader
 
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
+
+
+def _embodiment_names_ordered(spec: list[str] | dict[int, str]) -> list[str]:
+    """Ordered channel names from an embodiment entry (list or index→name map)."""
+    if isinstance(spec, dict):
+        return [spec[i] for i in sorted(spec)]
+    return list(spec)
 
 
 def convert_predictions_to_horizon(
@@ -140,7 +150,7 @@ def run_policy(
     policy: nc.policy,
     policy_state: PolicyState,
     visualizer: RobotVisualizer,
-    model_input_order: dict[DataType, list[str]],
+    input_embodiment_description: EmbodimentDescription,
 ) -> bool:
     """Handle Run Policy button press to capture state and get policy prediction."""
     print("Running policy...")
@@ -150,21 +160,25 @@ def run_policy(
     gripper_open_value = None
     rgb_image = None
 
-    # Only log data types that are in model_input_order
-    if DataType.JOINT_POSITIONS in model_input_order:
+    if DataType.JOINT_POSITIONS in input_embodiment_description:
         current_joint_angles = data_manager.get_current_joint_angles()
         if current_joint_angles is not None:
             joint_angles_rad = np.radians(current_joint_angles)
+            positions_by_name = {
+                jn: float(ang) for jn, ang in zip(JOINT_NAMES, joint_angles_rad)
+            }
+            policy_joint_order = _embodiment_names_ordered(
+                input_embodiment_description[DataType.JOINT_POSITIONS]
+            )
             joint_positions_dict = {
-                joint_name: angle
-                for joint_name, angle in zip(JOINT_NAMES, joint_angles_rad)
+                jn: positions_by_name[jn] for jn in policy_joint_order
             }
             nc.log_joint_positions(joint_positions_dict)
             print("  ✓ Logged joint positions")
         else:
             print("  ⚠️  No current joint angles available")
 
-    if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in model_input_order:
+    if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in input_embodiment_description:
         gripper_open_value = data_manager.get_current_gripper_open_value()
         if gripper_open_value is not None:
             nc.log_parallel_gripper_open_amount(GRIPPER_NAME, gripper_open_value)
@@ -172,19 +186,22 @@ def run_policy(
         else:
             print("  ⚠️  No gripper open value available")
 
-    if DataType.RGB_IMAGES in model_input_order:
-        # Log all available cameras (payload as-is; reporter = this script)
+    if DataType.RGB_IMAGES in input_embodiment_description:
+        rgb_names = _embodiment_names_ordered(
+            input_embodiment_description[DataType.RGB_IMAGES]
+        )
         logged_any_rgb = False
-        for camera_name in CAMERA_NAMES:
-            rgb_image = data_manager.get_rgb_image(camera_name)
-            if rgb_image is not None:
-                nc.log_rgb(camera_name, rgb_image)
+        for camera_name in rgb_names:
+            img = data_manager.get_rgb_image(camera_name)
+            if img is not None:
+                nc.log_rgb(camera_name, img)
                 logged_any_rgb = True
         if logged_any_rgb:
             print("  ✓ Logged RGB image(s)")
         else:
             print("  ⚠️  No RGB image available")
-        rgb_image = data_manager.get_rgb_image(CAMERA_NAMES[0])
+        if rgb_names:
+            rgb_image = data_manager.get_rgb_image(rgb_names[0])
 
     # Check if we have at least some data to run the policy
     if (
@@ -309,11 +326,17 @@ def run_and_start_policy_execution(
     policy: nc.policy,
     policy_state: PolicyState,
     visualizer: RobotVisualizer,
-    model_input_order: dict[DataType, list[str]],
+    input_embodiment_description: EmbodimentDescription,
 ) -> None:
     """Handle Run and Execute Policy button press to capture state, get policy prediction, and immediately execute it."""
     print("Run and Execute Policy for one prediction horizon")
-    run_policy(data_manager, policy, policy_state, visualizer, model_input_order)
+    run_policy(
+        data_manager,
+        policy,
+        policy_state,
+        visualizer,
+        input_embodiment_description,
+    )
     start_policy_execution(data_manager, policy_state)
 
 
@@ -338,7 +361,7 @@ def play_policy(
     policy: nc.policy,
     policy_state: PolicyState,
     visualizer: RobotVisualizer,
-    model_input_order: dict[DataType, list[str]],
+    input_embodiment_description: EmbodimentDescription,
 ) -> None:
     """Handle Play Policy button press to start/stop continuous policy execution."""
     if not policy_state.get_continuous_play_active():
@@ -347,7 +370,11 @@ def play_policy(
 
         # Run policy to get prediction horizon
         success = run_policy(
-            data_manager, policy, policy_state, visualizer, model_input_order
+            data_manager,
+            policy,
+            policy_state,
+            visualizer,
+            input_embodiment_description,
         )
         if not success:
             print("⚠️  Failed to run policy")
@@ -391,7 +418,7 @@ def policy_execution_thread(
     policy_state: PolicyState,
     robot_controller: PiperController,
     visualizer: RobotVisualizer,
-    model_input_order: dict[DataType, list[str]],
+    input_embodiment_description: EmbodimentDescription,
 ) -> None:
     """Policy execution thread."""
     dt_execution = 1.0 / POLICY_EXECUTION_RATE
@@ -505,7 +532,7 @@ def policy_execution_thread(
                         policy,
                         policy_state,
                         visualizer,
-                        model_input_order,
+                        input_embodiment_description,
                     )
                     if not success:
                         print("⚠️  Failed to run policy")
@@ -687,6 +714,12 @@ if __name__ == "__main__":
         default=None,
         help="Name of remote Neuracore policy endpoint.",
     )
+    parser.add_argument(
+        "--robot-name",
+        type=str,
+        default="AgileX PiPER",
+        help="Neuracore robot name (policy embodiment resolution).",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -704,13 +737,13 @@ if __name__ == "__main__":
     print("\n🔧 Initializing Neuracore...")
     nc.login()
     nc.connect_robot(
-        robot_name="AgileX PiPER",
+        robot_name=args.robot_name,
         urdf_path=str(URDF_PATH),
         overwrite=False,
     )
 
-    # Load policy
-    model_input_order = {
+    # Load policy (cross-embodiment + preprocessing; same pattern as example 6)
+    input_embodiment_description: EmbodimentDescription = {
         DataType.JOINT_POSITIONS: [
             "joint2",
             "joint5",
@@ -722,7 +755,7 @@ if __name__ == "__main__":
         DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: [GRIPPER_NAME],
         DataType.RGB_IMAGES: [CAMERA_NAMES[0]],
     }
-    model_output_order = {
+    output_embodiment_description: EmbodimentDescription = {
         DataType.JOINT_TARGET_POSITIONS: [
             "joint2",
             "joint5",
@@ -733,13 +766,16 @@ if __name__ == "__main__":
         ],
         DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: [GRIPPER_NAME],
     }
+    input_preprocessing_config: PreprocessingConfiguration = {
+        DataType.RGB_IMAGES: [ResizePad(size=(224, 224))],
+    }
 
-    print("\n📋 Model input order:")
-    for data_type, names in model_input_order.items():
-        print(f"  {data_type.name}: {names}")
-    print("\n📋 Model output order:")
-    for data_type, names in model_output_order.items():
-        print(f"  {data_type.name}: {names}")
+    print("\n📋 Input embodiment description:")
+    for data_type, spec in input_embodiment_description.items():
+        print(f"  {data_type.name}: {_embodiment_names_ordered(spec)}")
+    print("\n📋 Output embodiment description:")
+    for data_type, spec in output_embodiment_description.items():
+        print(f"  {data_type.name}: {_embodiment_names_ordered(spec)}")
 
     if args.remote_endpoint_name is not None:
         print(
@@ -758,16 +794,20 @@ if __name__ == "__main__":
         policy = nc.policy(
             train_run_name=args.train_run_name,
             device="cuda",
-            model_input_order=model_input_order,
-            model_output_order=model_output_order,
+            input_embodiment_description=input_embodiment_description,
+            output_embodiment_description=output_embodiment_description,
+            input_preprocessing_config=input_preprocessing_config,
+            robot_name=args.robot_name,
         )
     else:
         print(f"\n🤖 Loading policy from model file: {args.model_path}...")
         policy = nc.policy(
             model_file=args.model_path,
             device="cuda",
-            model_input_order=model_input_order,
-            model_output_order=model_output_order,
+            input_embodiment_description=input_embodiment_description,
+            output_embodiment_description=output_embodiment_description,
+            input_preprocessing_config=input_preprocessing_config,
+            robot_name=args.robot_name,
         )
     print("  ✓ Policy loaded successfully")
 
@@ -873,7 +913,11 @@ if __name__ == "__main__":
     visualizer.set_go_home_callback(lambda: home_robot(data_manager, robot_controller))
     visualizer.set_run_policy_callback(
         lambda: run_policy(
-            data_manager, policy, policy_state, visualizer, model_input_order
+            data_manager,
+            policy,
+            policy_state,
+            visualizer,
+            input_embodiment_description,
         )
     )
     visualizer.set_start_policy_execution_callback(
@@ -881,12 +925,20 @@ if __name__ == "__main__":
     )
     visualizer.set_run_and_start_policy_execution_callback(
         lambda: run_and_start_policy_execution(
-            data_manager, policy, policy_state, visualizer, model_input_order
+            data_manager,
+            policy,
+            policy_state,
+            visualizer,
+            input_embodiment_description,
         )
     )
     visualizer.set_play_policy_callback(
         lambda: play_policy(
-            data_manager, policy, policy_state, visualizer, model_input_order
+            data_manager,
+            policy,
+            policy_state,
+            visualizer,
+            input_embodiment_description,
         )
     )
     # Set up execution mode dropdown callback to sync with PolicyState
@@ -915,7 +967,7 @@ if __name__ == "__main__":
             policy_state,
             robot_controller,
             visualizer,
-            model_input_order,
+            input_embodiment_description,
         ),
         daemon=True,
     )
