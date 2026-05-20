@@ -90,14 +90,7 @@ class PolicyState:
             )
 
     def set_policy_rgb_image_input(self, image: np.ndarray) -> None:
-        """Set policy RGB image (thread-safe).
-
-        Raises:
-            RuntimeError: If policy inputs are locked (during execution).
-        """
-        with self._execution_lock:
-            if self._policy_inputs_locked:
-                raise RuntimeError("Policy inputs are locked during execution")
+        """Set policy RGB image (thread-safe)."""
         with self._policy_rgb_image_input_lock:
             self._policy_rgb_image_input = image.copy() if image is not None else None
 
@@ -111,14 +104,7 @@ class PolicyState:
             )
 
     def set_policy_state_input(self, input: np.ndarray) -> None:
-        """Set policy state input (thread-safe).
-
-        Raises:
-            RuntimeError: If policy inputs are locked (during execution).
-        """
-        with self._execution_lock:
-            if self._policy_inputs_locked:
-                raise RuntimeError("Policy inputs are locked during execution")
+        """Set policy state input (thread-safe)."""
         with self._policy_state_input_lock:
             self._policy_state_input = input.copy() if input is not None else None
 

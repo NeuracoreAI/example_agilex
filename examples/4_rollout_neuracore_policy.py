@@ -218,7 +218,13 @@ def run_policy(
         predictions = policy.predict(timeout=60)
         prediction_horizon = convert_predictions_to_horizon(predictions)
         end_time = time.time()
-        horizon_length = policy_state.get_prediction_horizon_length()
+        
+        # Calculate length directly from the new prediction dictionary
+        horizon_length = 0
+        if prediction_horizon:
+            first_key = next(iter(prediction_horizon.keys()))
+            horizon_length = len(prediction_horizon[first_key])
+            
         print(
             f"  ✓ Got {horizon_length} actions in {end_time - start_time:.3f} seconds"
         )
@@ -282,17 +288,23 @@ def start_policy_execution(
     if current_joint_angles is None:
         print("⚠️  Cannot execute policy: No current joint angles available")
         return False
+        
     # Get first action from horizon (index 0 for each joint)
     current_joint_target_positions_rad = np.array(
         [prediction_horizon[joint_name][0] for joint_name in JOINT_NAMES]
     )
-    joint_differences = np.abs(
-        current_joint_angles - np.degrees(current_joint_target_positions_rad)
-    )
+    current_target_deg = np.degrees(current_joint_target_positions_rad)
+    joint_differences = np.abs(current_joint_angles - current_target_deg)
+    
     if np.any(joint_differences > MAX_SAFETY_THRESHOLD):
-        print("⚠️ Cannot execute policy: Robot too far from first action")
-        print(f"   Differences: {[f'{d:.3f}' for d in joint_differences]}")
-        print(f"   Threshold: {MAX_SAFETY_THRESHOLD}°")
+        print("⚠️ Cannot execute policy: Robot too far from first predicted action")
+        print("   --- DIAGNOSTICS ---")
+        print(f"   Current Angles: {[f'{d:.2f}' for d in current_joint_angles]}")
+        print(f"   AI Predicted:   {[f'{d:.2f}' for d in current_target_deg]}")
+        print(f"   Differences:    {[f'{d:.2f}' for d in joint_differences]}")
+        print(f"   Threshold:      {MAX_SAFETY_THRESHOLD}°")
+        print("   💡 TIP 1: Did the arm sag? Check if 'Current Angles' are drooping.")
+        print("   💡 TIP 2: If the AI naturally predicts large first steps, increase MAX_SAFETY_THRESHOLD in common/configs.py")
         return False
 
     # All checks passed - start execution
@@ -321,25 +333,6 @@ def start_policy_execution(
     return True
 
 
-def run_and_start_policy_execution(
-    data_manager: DataManager,
-    policy: nc.policy,
-    policy_state: PolicyState,
-    visualizer: RobotVisualizer,
-    input_embodiment_description: EmbodimentDescription,
-) -> None:
-    """Handle Run and Execute Policy button press to capture state, get policy prediction, and immediately execute it."""
-    print("Run and Execute Policy for one prediction horizon")
-    run_policy(
-        data_manager,
-        policy,
-        policy_state,
-        visualizer,
-        input_embodiment_description,
-    )
-    start_policy_execution(data_manager, policy_state)
-
-
 def end_policy_play(
     data_manager: DataManager,
     policy_state: PolicyState,
@@ -349,12 +342,100 @@ def end_policy_play(
     """End continuous play and set robot activity state to ENABLED and update policy status."""
     if policy_state.get_continuous_play_active():
         policy_state.set_continuous_play_active(False)
+    
+    # Reset ghost robot color to default orange
+    visualizer.set_ghost_robot_color((1.0, 0.65, 0.0, 0.25))
+    
+    visualizer.update_play_policy_button_status(False)
+
     visualizer.update_play_policy_button_status(False)
     policy_state.end_policy_execution()
     data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
     data_manager.set_teleop_state(False, None, None)
     visualizer.update_policy_status(policy_status_message)
 
+def continuous_prediction_worker(
+    data_manager: DataManager,
+    policy: nc.policy,
+    policy_state: PolicyState,
+    visualizer: RobotVisualizer,
+    input_embodiment_description: EmbodimentDescription,
+    continuous_mode: str = "pipeline",
+) -> None:
+    """Background thread for continuous execution supporting pipelined and sequential modes."""
+    VISUALIZATION_COLORS = [
+        (1.0, 0.65, 0.0, 0.25),  # Orange (Default)
+        (0.0, 1.0, 0.0, 0.25),   # Green
+        (1.0, 0.0, 0.0, 0.25),   # Red
+        (0.0, 0.0, 1.0, 0.25),   # Blue
+    ]
+    color_index = 0
+
+    # 1. Bootstrap the very first prediction to get the robot moving
+    print(f"\n🚀 [Worker] Bootstrapping initial trajectory in '{continuous_mode}' mode...")
+    success = run_policy(data_manager, policy, policy_state, visualizer, input_embodiment_description)
+    if success:
+        start_policy_execution(data_manager, policy_state)
+
+    while policy_state.get_continuous_play_active():
+        # Failsafe: if there's no active trajectory running yet, wait briefly
+        if policy_state.get_locked_prediction_horizon_length() == 0:
+            time.sleep(0.01)
+            continue
+
+        if continuous_mode == "pipeline":
+            print("\n📸 [Pipeline Worker] Robot is moving! Prefetching next prediction in background...")
+            # Query the network in parallel while the execution thread is driving the motors
+            success = run_policy(data_manager, policy, policy_state, visualizer, input_embodiment_description)
+            
+            if not success or not policy_state.get_continuous_play_active():
+                time.sleep(0.05)
+                continue
+
+            # Wait until the current trajectory buffer is running low before swapping
+            while policy_state.get_continuous_play_active():
+                exec_idx = policy_state.get_execution_action_index()
+                total_len = policy_state.get_locked_prediction_horizon_length()
+                remaining = total_len - exec_idx
+                
+                # Hot-swap when 5 or fewer steps are left in the active trajectory
+                if remaining <= 5 or total_len == 0:
+                    break
+                time.sleep(0.01)
+
+        elif continuous_mode == "sequential":
+            # Wait until the current trajectory buffer is completely exhausted
+            while policy_state.get_continuous_play_active():
+                exec_idx = policy_state.get_execution_action_index()
+                total_len = policy_state.get_locked_prediction_horizon_length()
+                if exec_idx >= total_len or total_len == 0:
+                    break
+                time.sleep(0.01)
+
+            if not policy_state.get_continuous_play_active():
+                break
+
+            print("\n📸 [Sequential Worker] Trajectory finished! Holding position and requesting next prediction...")
+            success = run_policy(data_manager, policy, policy_state, visualizer, input_embodiment_description)
+
+            if not success or not policy_state.get_continuous_play_active():
+                time.sleep(0.05)
+                continue
+
+        if not policy_state.get_continuous_play_active():
+            break
+
+        print("🔄 [Worker] Swapping to new trajectory buffer!")
+        # Seamlessly clear the lock and flash the new horizon into play
+        policy_state.end_policy_execution()
+        success = start_policy_execution(data_manager, policy_state)
+        
+        if success:
+            color_index = (color_index + 1) % len(VISUALIZATION_COLORS)
+            visualizer.set_ghost_robot_color(VISUALIZATION_COLORS[color_index])
+        else:
+            print("❌ [Worker] Swap rejected by safety threshold. Retrying immediately...")
+            time.sleep(0.01)
 
 def play_policy(
     data_manager: DataManager,
@@ -362,55 +443,29 @@ def play_policy(
     policy_state: PolicyState,
     visualizer: RobotVisualizer,
     input_embodiment_description: EmbodimentDescription,
+    continuous_mode: str = "pipeline",
 ) -> None:
     """Handle Play Policy button press to start/stop continuous policy execution."""
     if not policy_state.get_continuous_play_active():
         # Start continuous play
-        print("▶️  Play Policy button pressed - Starting continuous policy execution...")
-
-        # Run policy to get prediction horizon
-        success = run_policy(
-            data_manager,
-            policy,
-            policy_state,
-            visualizer,
-            input_embodiment_description,
-        )
-        if not success:
-            print("⚠️  Failed to run policy")
-            end_policy_play(
-                data_manager,
-                policy_state,
-                visualizer,
-                "Continuous play stopped - prediction failed",
-            )
-            return
-
-        # Execute policy
-        success = start_policy_execution(data_manager, policy_state)
-        if not success:
-            print("⚠️  Failed to execute policy")
-            end_policy_play(
-                data_manager,
-                policy_state,
-                visualizer,
-                "Continuous play stopped - execution failed",
-            )
-            return
-
+        print(f"▶️  Play Policy button pressed - Starting {continuous_mode.capitalize()} Mode...")
         policy_state.set_continuous_play_active(True)
         visualizer.update_play_policy_button_status(True)
-
+        
+        # Spawn the background worker
+        threading.Thread(
+            target=continuous_prediction_worker,
+            args=(data_manager, policy, policy_state, visualizer, input_embodiment_description, continuous_mode),
+            daemon=True
+        ).start()
     else:
         # Stop continuous play
         print("⏹️  Stop Policy button pressed - Stopping continuous policy execution...")
         policy_state.set_continuous_play_active(False)
         end_policy_play(
-            data_manager, policy_state, visualizer, "Policy execution stopped "
+            data_manager, policy_state, visualizer, "Policy execution stopped"
         )
-
         print("✓ Policy execution stopped and robot enabled")
-
 
 def policy_execution_thread(
     policy: nc.policy,
@@ -422,6 +477,16 @@ def policy_execution_thread(
 ) -> None:
     """Policy execution thread."""
     dt_execution = 1.0 / POLICY_EXECUTION_RATE
+    
+    # Define colors for continuous horizon visualization
+    VISUALIZATION_COLORS = [
+        (1.0, 0.65, 0.0, 0.25),  # Orange (Default)
+        (0.0, 1.0, 0.0, 0.25),  # Green
+        (1.0, 0.0, 0.0, 0.25),  # Red
+        (0.0, 0.0, 1.0, 0.25),  # Blue
+    ]
+    color_index = 0
+
     # Throttle visualization updates to ~30Hz to avoid overwhelming Viser
     last_visualization_update = 0.0
     visualization_update_interval = 1.0 / 30.0  # 30 Hz
@@ -443,6 +508,7 @@ def policy_execution_thread(
                     f"robot enabled: {robot_controller.is_robot_enabled()}"
                 )
 
+            # If continuous play is active, only execute up to the chunk limit
             if execution_index < locked_horizon_length:
                 # Check if previous goal was achieved, if any
                 current_joint_angles = data_manager.get_current_joint_angles()
@@ -520,57 +586,23 @@ def policy_execution_thread(
                 visualizer.update_policy_status(
                     f"Executing policy: {execution_index + 1}/{locked_horizon_length}"
                 )
-            # Check if continuous play is active
-            elif policy_state.get_continuous_play_active():
-                # Automatically get new prediction and execute
-                try:
-                    # End policy execution to clear input lock
-                    policy_state.end_policy_execution()
-                    # Run policy to get prediction horizon
-                    success = run_policy(
-                        data_manager,
-                        policy,
-                        policy_state,
-                        visualizer,
-                        input_embodiment_description,
-                    )
-                    if not success:
-                        print("⚠️  Failed to run policy")
-                        end_policy_play(
-                            data_manager,
-                            policy_state,
-                            visualizer,
-                            "Continuous play stopped - prediction failed",
-                        )
-                        continue
-
-                    # Execute policy
-                    success = start_policy_execution(data_manager, policy_state)
-                    if not success:
-                        print("⚠️  Failed to execute policy")
-                        end_policy_play(
-                            data_manager,
-                            policy_state,
-                            visualizer,
-                            "Continuous play stopped - execution failed",
-                        )
-                        continue
-
-                except Exception as e:
-                    print(f"✗ Failed to get next policy prediction: {e}")
-                    traceback.print_exc()
-                    end_policy_play(
-                        data_manager,
-                        policy_state,
-                        visualizer,
-                        "Continuous play stopped - prediction failed",
-                    )
             else:
-                # Execution complete
-                print("✓ Policy execution completed")
-                end_policy_play(
-                    data_manager, policy_state, visualizer, "Policy execution completed"
-                )
+                # Horizon buffer exhausted
+                if not policy_state.get_continuous_play_active():
+                    print("✓ Policy execution completed")
+                    end_policy_play(
+                        data_manager, policy_state, visualizer, "Policy execution completed"
+                    )
+                else:
+                    # Failsafe: If the background thread is running slightly late, 
+                    # hold the very last predicted position to maintain motor torque.
+                    if all(joint_name in locked_horizon for joint_name in JOINT_NAMES):
+                        last_index = locked_horizon_length - 1
+                        hold_positions_rad = np.array([
+                            locked_horizon[jn][last_index] for jn in JOINT_NAMES
+                        ])
+                        if robot_controller.is_robot_enabled():
+                            robot_controller.set_target_joint_angles(np.degrees(hold_positions_rad))
 
         # NOTE: Update visualization less frequently to avoid blocking
         # Throttle visualization updates to ~30Hz to prevent overwhelming Viser server
@@ -618,9 +650,9 @@ def update_visualization(
             joint_config_rad = np.radians(target_joint_angles)
             visualizer.update_ghost_robot_pose(joint_config_rad)
         # Disable buttons during execution
-        visualizer.set_start_policy_execution_button_disabled(True)
+        # visualizer.set_start_policy_execution_button_disabled(True)
         visualizer.set_run_policy_button_disabled(True)
-        visualizer.set_run_and_start_policy_execution_button_disabled(True)
+        # visualizer.set_run_and_start_policy_execution_button_disabled(True)
         # Play/Stop button is enabled during execution so we can stop if needed
         visualizer.set_play_policy_button_disabled(False)
 
@@ -669,7 +701,7 @@ def update_visualization(
             not (robot_enabled and has_horizon)
         )
         visualizer.set_run_policy_button_disabled(not robot_enabled)
-        visualizer.set_run_and_start_policy_execution_button_disabled(not robot_enabled)
+        #visualizer.set_run_and_start_policy_execution_button_disabled(not robot_enabled)
         visualizer.set_play_policy_button_disabled(not robot_enabled)
 
         # Update policy status
@@ -702,6 +734,15 @@ if __name__ == "__main__":
         default=None,
         help="Name of the training run to load policy from (for cloud training).",
     )
+
+    parser.add_argument(
+        "--continuous-mode",
+        type=str,
+        choices=["pipeline", "sequential"],
+        default="pipeline",
+        help="Execution mode for Play Policy: 'pipeline' (smooth hot-swapping) or 'sequential' (execute full horizon, then pause to predict next).",
+    )
+
     policy_group.add_argument(
         "--model-path",
         type=str,
@@ -796,7 +837,7 @@ if __name__ == "__main__":
             device="cuda",
             input_embodiment_description=input_embodiment_description,
             output_embodiment_description=output_embodiment_description,
-            input_preprocessing_config=input_preprocessing_config,
+            #input_preprocessing_config=input_preprocessing_config,
             robot_name=args.robot_name,
         )
     else:
@@ -923,15 +964,7 @@ if __name__ == "__main__":
     visualizer.set_start_policy_execution_callback(
         lambda: start_policy_execution(data_manager, policy_state)
     )
-    visualizer.set_run_and_start_policy_execution_callback(
-        lambda: run_and_start_policy_execution(
-            data_manager,
-            policy,
-            policy_state,
-            visualizer,
-            input_embodiment_description,
-        )
-    )
+
     visualizer.set_play_policy_callback(
         lambda: play_policy(
             data_manager,
@@ -939,8 +972,10 @@ if __name__ == "__main__":
             policy_state,
             visualizer,
             input_embodiment_description,
+            args.continuous_mode,
         )
     )
+    
     # Set up execution mode dropdown callback to sync with PolicyState
     visualizer.set_execution_mode_callback(
         lambda: policy_state.set_execution_mode(
@@ -983,10 +1018,10 @@ if __name__ == "__main__":
     print("      - Hold RIGHT TRIGGER to close gripper")
     print("      - Press BUTTON A or Enable Robot button to enable/disable robot")
     print("      - Press BUTTON B or Home Robot button to send robot home")
-    print("   3. Click 'Run Policy' button to run policy (without executing)")
-    print("   4. Click 'Execute Policy' button to execute prediction horizon")
-    print("   5. Click 'Run and Execute Policy' button to run and execute policy")
-    print("   6. Click 'Play Policy' button to play policy")
+    print("   3. Click 'Run Policy' (Preview) to generate and visualize a prediction horizon")
+    print("   4. Click 'Execute Policy' to run the currently previewed horizon")
+    print("   5. Click 'Play Policy' (Receding Horizon) to constantly predict and execute the first action")
+    # print("   6. Click 'Play Policy' button to play policy")
     print("⚠️  Press Ctrl+C to exit")
     print()
     print("🌐 Open browser: http://localhost:8080")

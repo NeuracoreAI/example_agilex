@@ -46,7 +46,7 @@ Clone the Meta Quest teleoperation repository and install it:
 **NOTE**: Make sure you're installing it inside the `piper-teleop` conda environment.
 
 ```bash
-git clone https://github.com/NeuracoreAI/meta_quest_teleop.git
+git clone https://github.com/NeuracoreAI/meta_quest_teleop.git ## Halid Note: it is not clear where it should be cloned exactly.
 cd meta_quest_teleop
 pip install -e .
 cd ..
@@ -123,6 +123,8 @@ python examples/2_collect_teleop_data_with_neuracore.py [--ip-address <quest-ip>
 ### 3. Replay Neuracore Episodes
 
 **Script**: `examples/3_replay_neuracore_episodes.py`
+
+**Halid Note**: This step can be dangerous. always ready to press the emergency. The index start from 0 not 1, hence if you see number as x in the frontend, you need to run x-1. I cannot rerun this command again successfully after the first time running. The frequency should be default as 20.
 
 Replay recorded episodes from a Neuracore dataset on the physical robot.
 

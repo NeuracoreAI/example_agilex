@@ -4,9 +4,9 @@
 This module provides shared state classes for teleoperation systems that need
 to coordinate between multiple threads (data collection, IK solving, visualization).
 """
-
 import threading
 import time
+import queue  # Added for async queueing
 from enum import Enum
 from typing import Any, Callable
 
@@ -18,7 +18,6 @@ from .one_euro_filter import OneEuroFilterTransform
 
 class RobotActivityState(Enum):
     """Robot activity state enumeration."""
-
     ENABLED = "ENABLED"
     HOMING = "HOMING"
     DISABLED = "DISABLED"
@@ -99,7 +98,6 @@ class CameraState:
         # Map from camera name -> latest RGB image
         self.rgb_images: dict[str, np.ndarray] = {}
 
-
 class DataManager:
     """Main state container coordinating all state groups.
 
@@ -110,10 +108,8 @@ class DataManager:
 
     Uses separate locks for each state group to reduce contention.
     """
-
     def __init__(self) -> None:
-        """Initialize DataManager with default values."""
-        # State groups with individual locks
+        """Initialize DataManager with background callback processing."""
         self._controller_state = ControllerState()
         self._teleop_state = TeleopState()
         self._robot_state = RobotState()
@@ -123,18 +119,55 @@ class DataManager:
         # System state
         self._shutdown_event = threading.Event()
 
-        # Callback for state changes (RGB, target joints, current joints).
-        # The callable takes (name: str, payload: dict[str, Any], timestamp: float).
-        # payload is the data dict e.g. {joint1: v, joint2: v}, {gripper: v}, {rgb_scene: array}.
+        # Asynchronous processing elements
         self._on_change_callback: (
             Callable[[str, dict[str, Any], float], None] | None
         ) = None
+        
+        # Maxsize 60 matches ~1 second of video frames buffer if disk spikes
+        self._callback_queue: queue.Queue = queue.Queue(maxsize=60)
+        
+        self._worker_thread = threading.Thread(
+            target=self._callback_worker_loop, 
+            name="NeuracoreCallbackWorker", 
+            daemon=True
+        )
+        self._worker_thread.start()
 
     def set_on_change_callback(
         self, on_change_callback: Callable[[str, dict[str, Any], float], None]
     ) -> None:
         """Set on change callback (thread-safe)."""
         self._on_change_callback = on_change_callback
+
+    def _queue_callback(self, name: str, payload: dict[str, Any], timestamp: float) -> None:
+        """Helper to push payloads into the execution queue without blocking."""
+        if self._on_change_callback is None:
+            return
+            
+        try:
+            # put_nowait drops data into the memory queue instantly (0.0ms blocking)
+            self._callback_queue.put_nowait((name, payload, timestamp))
+        except queue.Full:
+            # Prevents out-of-memory if disk halts completely, without freezing telemetry loops
+            print(f"⚠️ Neuracore background queue full! Dropping log packet: {name}")
+
+    def _callback_worker_loop(self) -> None:
+        """Background thread worker loop dedicated solely to performing slow disk IO updates."""
+        while not self._shutdown_event.is_set() or not self._callback_queue.empty():
+            try:
+                # Wait up to 100ms for a logging event
+                name, payload, timestamp = self._callback_queue.get(timeout=0.1)
+                
+                if self._on_change_callback is not None:
+                    # Execute Neuracore disk operation safely here on a separate core
+                    self._on_change_callback(name, payload, timestamp)
+                    
+                self._callback_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"❌ Error in background logging callback: {e}")
 
     # ============================================================================
     # Camera State Methods
@@ -145,28 +178,24 @@ class DataManager:
         with self._camera_state._lock:
             if not self._camera_state.rgb_images:
                 return None
-
             img = self._camera_state.rgb_images.get(camera_name)
             return img.copy() if img is not None else None
 
     def set_rgb_image(self, image: np.ndarray, camera_name: str) -> None:
-        """Set RGB image for a specific camera (thread-safe)."""
+        """Set RGB image for a specific camera (thread-safe and non-blocking)."""
         with self._camera_state._lock:
             self._camera_state.rgb_images[camera_name] = image.copy()
+            
         if self._on_change_callback:
             img_copy = self._camera_state.rgb_images[camera_name].copy()
-            self._on_change_callback("log_rgb", {camera_name: img_copy}, time.time())
+            # Queue it instead of executing directly! Camera loop returns immediately.
+            self._queue_callback("log_rgb", {camera_name: img_copy}, time.time())
 
     # ============================================================================
     # Controller State Methods
     # ============================================================================
 
     def get_controller_data(self) -> tuple[np.ndarray | None, float, float]:
-        """Get current controller data (thread-safe).
-
-        Returns:
-            Tuple of (controller_transform, grip_value, trigger_value)
-        """
         with self._controller_state._lock:
             return (
                 (
@@ -181,18 +210,6 @@ class DataManager:
     def set_controller_data(
         self, transform: np.ndarray | None, grip: float, trigger: float
     ) -> None:
-        """Set controller data (thread-safe).
-
-        Args:
-            transform: np.ndarray | None - 4x4 transformation matrix or None
-            grip: float - grip value
-            trigger: float - trigger value
-
-        Raises:
-            ValueError: If the transform is not a 4x4 matrix
-            ValueError: If the grip value is not between 0.0 and 1.0
-            ValueError: If the trigger value is not between 0.0 and 1.0
-        """
         if transform is not None and transform.shape != (4, 4):
             raise ValueError("Transform must be a 4x4 matrix")
         if grip < 0.0 or grip > 1.0:
@@ -206,11 +223,8 @@ class DataManager:
 
             if transform is not None:
                 current_time = time.time()
-
-                # Store raw transform
                 self._controller_state.transform_raw = transform.copy()
 
-                # Initialize filter if needed
                 if self._controller_state._filter is None:
                     self._controller_state._filter = OneEuroFilterTransform(
                         current_time,
@@ -221,45 +235,28 @@ class DataManager:
                     )
                     self._controller_state.transform = transform.copy()
                 else:
-                    # Update filter parameters if they changed
                     self._controller_state._filter.update_params(
                         self._controller_state.min_cutoff,
                         self._controller_state.beta,
                         self._controller_state.d_cutoff,
                     )
-
-                    # Apply filter
                     self._controller_state.transform = self._controller_state._filter(
                         current_time, transform
                     )
             else:
                 self._controller_state.transform = None
                 self._controller_state.transform_raw = None
-                self._controller_state._filter = (
-                    None  # Reset filter when transform is None
-                )
+                self._controller_state._filter = None
 
     def set_controller_filter_params(
         self, min_cutoff: float, beta: float, d_cutoff: float
     ) -> None:
-        """Update 1€ Filter parameters for controller transform (thread-safe).
-
-        Args:
-            min_cutoff: Minimum cutoff frequency (stabilizes when holding still)
-            beta: Speed coefficient (reduces lag when moving)
-            d_cutoff: Cutoff frequency for derivative filtering
-        """
         with self._controller_state._lock:
             self._controller_state.min_cutoff = min_cutoff
             self._controller_state.beta = beta
             self._controller_state.d_cutoff = d_cutoff
 
     def get_controller_filter_params(self) -> tuple[float, float, float]:
-        """Get 1€ Filter parameters for controller transform (thread-safe).
-
-        Returns:
-            Tuple of (min_cutoff, beta, d_cutoff)
-        """
         with self._controller_state._lock:
             return (
                 self._controller_state.min_cutoff,
@@ -277,13 +274,6 @@ class DataManager:
         controller_initial: np.ndarray | None,
         robot_initial: np.ndarray | None,
     ) -> None:
-        """Set teleoperation state (thread-safe).
-
-        Args:
-            active: bool - whether teleop is active
-            controller_initial: np.ndarray | None - 4x4 transformation matrix for initial controller transform or None to clear
-            robot_initial: np.ndarray | None - 4x4 transformation matrix for initial robot transform or None to clear
-        """
         with self._teleop_state._lock:
             self._teleop_state.active = active
             self._teleop_state.controller_initial_transform = (
@@ -296,26 +286,13 @@ class DataManager:
     def set_teleop_scaling(
         self, translation_scale: float, rotation_scale: float
     ) -> None:
-        """Set teleoperation scaling factors (thread-safe).
-
-        Args:
-            translation_scale: Scale applied to controller translation deltas
-            rotation_scale: Scale applied to controller rotation deltas
-        """
-        # Ignore invalid values (e.g. transient 0 while typing) and keep old scaling.
         if translation_scale <= 0.0 or rotation_scale <= 0.0:
             return
-
         with self._teleop_state._lock:
             self._teleop_state.translation_scale = translation_scale
             self._teleop_state.rotation_scale = rotation_scale
 
     def get_teleop_scaling(self) -> tuple[float, float]:
-        """Get teleoperation scaling factors (thread-safe).
-
-        Returns:
-            Tuple of (translation_scale, rotation_scale)
-        """
         with self._teleop_state._lock:
             return (
                 self._teleop_state.translation_scale,
@@ -323,17 +300,14 @@ class DataManager:
             )
 
     def get_teleop_active(self) -> bool:
-        """Get teleoperation active state (thread-safe)."""
         with self._teleop_state._lock:
             return self._teleop_state.active
 
     def set_slow_scaling_mode_enabled(self, enabled: bool) -> None:
-        """Set slow-scaling mode status (thread-safe)."""
         with self._teleop_state._lock:
             self._teleop_state.slow_scaling_mode_enabled = enabled
 
     def toggle_slow_scaling_mode_enabled(self) -> bool:
-        """Toggle and return slow-scaling mode status (thread-safe)."""
         with self._teleop_state._lock:
             self._teleop_state.slow_scaling_mode_enabled = (
                 not self._teleop_state.slow_scaling_mode_enabled
@@ -341,21 +315,12 @@ class DataManager:
             return self._teleop_state.slow_scaling_mode_enabled
 
     def get_slow_scaling_mode_enabled(self) -> bool:
-        """Get slow-scaling mode status (thread-safe)."""
         with self._teleop_state._lock:
             return self._teleop_state.slow_scaling_mode_enabled
 
     def get_initial_robot_controller_transforms(
         self,
     ) -> tuple[np.ndarray | None, np.ndarray | None]:
-        """Get initial robot and controller transforms.
-
-        These two transforms are captured on rising edge of grip button
-        and reset on falling edge of grip button. (thread-safe)
-
-        Returns:
-            Tuple of (controller_initial_transform, robot_initial_transform)
-        """
         with self._teleop_state._lock:
             return (
                 (
@@ -375,29 +340,14 @@ class DataManager:
     # ============================================================================
 
     def get_robot_activity_state(self) -> RobotActivityState:
-        """Get robot activity state (thread-safe).
-
-        Returns:
-            RobotActivityState - current robot activity state
-        """
         with self._robot_state._lock:
             return self._robot_state.activity_state
 
     def set_robot_activity_state(self, state: RobotActivityState) -> None:
-        """Set robot activity state (thread-safe).
-
-        Args:
-            state: RobotActivityState - new robot activity state
-        """
         with self._robot_state._lock:
             self._robot_state.activity_state = state
 
     def get_current_joint_angles(self) -> np.ndarray | None:
-        """Get current joint angles (thread-safe).
-
-        Returns:
-            Current joint angles or None if not available
-        """
         with self._robot_state._lock:
             return (
                 self._robot_state.joint_angles.copy()
@@ -406,11 +356,6 @@ class DataManager:
             )
 
     def set_current_joint_angles(self, angles: np.ndarray) -> None:
-        """Set current joint angles (thread-safe).
-
-        Args:
-            angles: np.ndarray - current joint angles
-        """
         with self._robot_state._lock:
             self._robot_state.joint_angles = angles.copy()
         if self._on_change_callback:
@@ -419,14 +364,9 @@ class DataManager:
                 payload = {
                     jn: float(np.radians(angles[i])) for i, jn in enumerate(JOINT_NAMES)
                 }
-                self._on_change_callback("log_joint_positions", payload, time.time())
+                self._queue_callback("log_joint_positions", payload, time.time())
 
     def get_current_joint_torques(self) -> np.ndarray | None:
-        """Get current joint torques/currents proxy (thread-safe).
-
-        Returns:
-            Current joint torques/currents vector or None if not available
-        """
         with self._robot_state._lock:
             return (
                 self._robot_state.joint_torques.copy()
@@ -435,25 +375,15 @@ class DataManager:
             )
 
     def set_current_joint_torques(self, torques: np.ndarray) -> None:
-        """Set current joint torques/currents proxy and log to NeuraCore.
-
-        Args:
-            torques: np.ndarray - current joint torques/currents vector
-        """
         with self._robot_state._lock:
             self._robot_state.joint_torques = torques.copy()
         if self._on_change_callback:
             torques = self._robot_state.joint_torques
             if torques is not None:
                 payload = {jn: float(torques[i]) for i, jn in enumerate(JOINT_NAMES)}
-                self._on_change_callback("log_joint_torques", payload, time.time())
+                self._queue_callback("log_joint_torques", payload, time.time())
 
     def get_current_end_effector_pose(self) -> np.ndarray | None:
-        """Get current end effector pose (thread-safe).
-
-        Returns:
-            Current end effector pose or None if not available
-        """
         with self._robot_state._lock:
             return (
                 self._robot_state.end_effector_pose.copy()
@@ -462,61 +392,32 @@ class DataManager:
             )
 
     def set_current_end_effector_pose(self, pose: np.ndarray) -> None:
-        """Set current end effector pose (thread-safe).
-
-        Args:
-            pose: np.ndarray - current end effector pose
-        """
         with self._robot_state._lock:
             self._robot_state.end_effector_pose = pose.copy()
 
     def get_current_gripper_open_value(self) -> float | None:
-        """Get current gripper open value (thread-safe).
-
-        Returns:
-            Current gripper open value or None if not available
-        """
         with self._robot_state._lock:
-            return (
-                self._robot_state.current_gripper_open_value
-                if self._robot_state.current_gripper_open_value is not None
-                else None
-            )
+            return self._robot_state.current_gripper_open_value
 
     def set_current_gripper_open_value(self, value: float) -> None:
-        """Set current gripper open value (thread-safe).
-
-        Args:
-            value: float - current gripper open value
-        """
         with self._robot_state._lock:
             self._robot_state.current_gripper_open_value = value
         if self._on_change_callback:
-            self._on_change_callback(
+            self._queue_callback(
                 "log_parallel_gripper_open_amounts",
                 {GRIPPER_NAME: value},
                 time.time(),
             )
 
     def get_target_gripper_open_value(self) -> float | None:
-        """Get target gripper open value (thread-safe).
-
-        Returns:
-            Target gripper open value or None if not available
-        """
         with self._robot_state._lock:
             return self._robot_state.target_gripper_open_value
 
     def set_target_gripper_open_value(self, value: float) -> None:
-        """Set target gripper open value (thread-safe).
-
-        Args:
-            value: float - target gripper open value
-        """
         with self._robot_state._lock:
             self._robot_state.target_gripper_open_value = value
         if self._on_change_callback:
-            self._on_change_callback(
+            self._queue_callback(
                 "log_parallel_gripper_target_open_amounts",
                 {GRIPPER_NAME: self._robot_state.target_gripper_open_value},
                 time.time(),
@@ -527,11 +428,6 @@ class DataManager:
     # ============================================================================
 
     def get_target_joint_angles(self) -> np.ndarray | None:
-        """Get current joint configuration (thread-safe).
-
-        Returns:
-            Current target joint angles or None if not available
-        """
         with self._ik_state._lock:
             return (
                 self._ik_state.target_joint_angles.copy()
@@ -540,11 +436,6 @@ class DataManager:
             )
 
     def set_target_joint_angles(self, angles: np.ndarray) -> None:
-        """Set target joint angles (thread-safe).
-
-        Args:
-            angles: np.ndarray - target joint angles
-        """
         with self._ik_state._lock:
             self._ik_state.target_joint_angles = angles.copy()
         if self._on_change_callback:
@@ -553,27 +444,17 @@ class DataManager:
                 payload = {
                     jn: float(np.radians(angles[i])) for i, jn in enumerate(JOINT_NAMES)
                 }
-                self._on_change_callback(
+                self._queue_callback(
                     "log_joint_target_positions", payload, time.time()
                 )
 
     def set_target_pose(self, transform: np.ndarray | None) -> None:
-        """Set target transform for visualization (thread-safe).
-
-        Args:
-            transform: np.ndarray | None - 4x4 transformation matrix or None to clear target transform
-        """
         with self._ik_state._lock:
             self._ik_state.target_pose = (
                 transform.copy() if transform is not None else None
             )
 
     def get_target_pose(self) -> np.ndarray | None:
-        """Get target transform for visualization (thread-safe).
-
-        Returns:
-            Target transform or None if target transform is not set
-        """
         with self._ik_state._lock:
             return (
                 self._ik_state.target_pose.copy()
@@ -582,38 +463,18 @@ class DataManager:
             )
 
     def set_ik_solve_time_ms(self, time_ms: float) -> None:
-        """Set IK solve time (thread-safe).
-
-        Args:
-            time_ms: float - IK solve time in milliseconds
-        """
         with self._ik_state._lock:
             self._ik_state.solve_time_ms = time_ms
 
     def set_ik_success(self, success: bool) -> None:
-        """Set IK success (thread-safe).
-
-        Args:
-            success: bool - True if IK was successful, False otherwise
-        """
         with self._ik_state._lock:
             self._ik_state.success = success
 
     def get_ik_solve_time_ms(self) -> float:
-        """Get IK solve time (thread-safe).
-
-        Returns:
-            IK solve time in milliseconds
-        """
         with self._ik_state._lock:
             return self._ik_state.solve_time_ms
 
     def get_ik_success(self) -> bool:
-        """Get IK success (thread-safe).
-
-        Returns:
-            True if IK was successful, False otherwise
-        """
         with self._ik_state._lock:
             return self._ik_state.success
 
@@ -622,13 +483,9 @@ class DataManager:
     # ============================================================================
 
     def request_shutdown(self) -> None:
-        """Request shutdown of all threads (lock-free using Event)."""
+        """Request shutdown of all threads."""
         self._shutdown_event.set()
 
     def is_shutdown_requested(self) -> bool:
-        """Check if shutdown is requested (lock-free using Event).
-
-        Returns:
-            True if shutdown is requested, False otherwise
-        """
+        """Check if shutdown is requested."""
         return self._shutdown_event.is_set()
