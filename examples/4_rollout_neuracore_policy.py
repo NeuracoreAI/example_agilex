@@ -707,13 +707,6 @@ if __name__ == "__main__":
         policy = nc.policy(
             train_run_name=args.train_run_name,
             device="cuda",
-<<<<<<< HEAD
-=======
-            input_embodiment_description=input_embodiment_description,
-            output_embodiment_description=output_embodiment_description,
-            #input_preprocessing_config=input_preprocessing_config,
->>>>>>> 895900c (fix: make the policy inference work sequentially from remote inference.)
-            robot_name=args.robot_name,
         )
     else:
         print(f"\n🤖 Loading policy from model file: {args.model_path}...")
