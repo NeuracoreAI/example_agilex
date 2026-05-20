@@ -40,7 +40,7 @@ class RobotVisualizer:
             self._server,
             ghost_urdf,
             root_node_name="/robot_ghost",
-            mesh_color_override=(0.2, 0.4, 1.0, 0.25),  # Blue with 60% opacity
+            mesh_color_override=(1.0, 0.65, 0.0, 0.25),  # Orange with 25% opacity
         )
 
         # GUI handles (initialized as None, created on demand) - all private
@@ -92,7 +92,6 @@ class RobotVisualizer:
         self._execution_mode_dropdown = None
         self._run_policy_button = None
         self._start_policy_execution_button = None
-        self._run_and_start_policy_execution_button = None
         self._play_policy_button = None
 
         # Internal state
@@ -675,14 +674,11 @@ class RobotVisualizer:
 
     def add_policy_buttons(self) -> None:
         """Add policy control buttons."""
-        self._run_policy_button = self._server.gui.add_button("Run Policy")
+        self._run_policy_button = self._server.gui.add_button("Run Policy (Preview)")
         self._start_policy_execution_button = self._server.gui.add_button(
-            "Start Policy Execution"
+            "Execute Policy (Run Preview)"
         )
-        self._run_and_start_policy_execution_button = self._server.gui.add_button(
-            "Run and Execute Policy"
-        )
-        self._play_policy_button = self._server.gui.add_button("Play Policy")
+        self._play_policy_button = self._server.gui.add_button("Continuous Receding Horizon")
 
     def update_policy_status(self, status: str) -> None:
         """Update policy status display.
@@ -773,16 +769,6 @@ class RobotVisualizer:
         if self._start_policy_execution_button is not None:
             self._start_policy_execution_button.on_click(lambda _: callback())
 
-    def set_run_and_start_policy_execution_callback(
-        self, callback: Callable[[], Any]
-    ) -> None:
-        """Set callback for Run and Execute Policy button.
-
-        Args:
-            callback: Callback function to call when button is clicked
-        """
-        if self._run_and_start_policy_execution_button is not None:
-            self._run_and_start_policy_execution_button.on_click(lambda _: callback())
 
     def set_play_policy_callback(self, callback: Callable[[], Any]) -> None:
         """Set callback for Play Policy button.
@@ -856,16 +842,6 @@ class RobotVisualizer:
         if self._start_policy_execution_button is not None:
             self._start_policy_execution_button.disabled = disabled
 
-    def set_run_and_start_policy_execution_button_disabled(
-        self, disabled: bool
-    ) -> None:
-        """Set Run and Execute Policy button disabled state.
-
-        Args:
-            disabled: Whether button should be disabled
-        """
-        if self._run_and_start_policy_execution_button is not None:
-            self._run_and_start_policy_execution_button.disabled = disabled
 
     def set_play_policy_button_disabled(self, disabled: bool) -> None:
         """Set Play Policy button disabled state.
@@ -883,8 +859,18 @@ class RobotVisualizer:
             active: Whether continuous play is currently active
         """
         if self._play_policy_button is not None:
-            self._play_policy_button.label = "Stop Policy" if active else "Play Policy"
+            self._play_policy_button.label = (
+                "Stop Continuous Horizon" if active else "Continuous Receding Horizon"
+            )
+    def set_ghost_robot_color(self, color: tuple[float, float, float, float]) -> None:
+        """Set the color of the ghost robot.
 
+        Args:
+            color: RGBA tuple (0.0 to 1.0)
+        """
+        if self._ghost_robot_urdf is not None:
+            self._ghost_robot_urdf.mesh_color_override = color
+            
     def stop(self) -> None:
         """Stop the visualizer server."""
         self._server.stop()
