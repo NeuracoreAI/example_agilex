@@ -745,7 +745,7 @@ if __name__ == "__main__":
         "--continuous-mode",
         type=str,
         choices=["pipeline", "sequential"],
-        default="pipeline",
+        default="sequential",
         help="Execution mode for Play Policy: 'pipeline' (smooth hot-swapping) or 'sequential' (execute full horizon, then pause to predict next).",
     )
 
