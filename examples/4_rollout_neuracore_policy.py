@@ -15,7 +15,15 @@ from pathlib import Path
 
 import neuracore as nc
 import numpy as np
-from neuracore_types import DataType, EmbodimentDescription
+from neuracore.ml.preprocessing.methods.resize_pad import ResizePad
+from neuracore.ml.utils.preprocessing_utils import PreprocessingConfiguration
+from neuracore_types import (
+    BatchedJointData,
+    BatchedNCData,
+    BatchedParallelGripperOpenAmountData,
+    DataType,
+    EmbodimentDescription,
+)
 
 # Add parent directory to path to import pink_ik_solver and piper_controller
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -30,6 +38,7 @@ from common.configs import (
     DAMPING_COST,
     FRAME_TASK_GAIN,
     GRIPPER_FRAME_NAME,
+    GRIPPER_NAME,
     IK_SOLVER_RATE,
     JOINT_NAMES,
     JOINT_STATE_STREAMING_RATE,
@@ -50,15 +59,6 @@ from common.configs import (
     VISUALIZATION_RATE,
 )
 from common.data_manager import DataManager, RobotActivityState
-from common.policy_helpers import (
-    convert_predictions_to_horizon,
-    embodiment_names_ordered,
-    get_policy_embodiments,
-    gripper_open_at_index,
-    joint_targets_deg_at_index,
-    log_robot_state_for_policy,
-    print_policy_embodiments,
-)
 from common.policy_state import PolicyState
 from common.robot_visualizer import RobotVisualizer
 from common.threads.ik_solver import ik_solver_thread
@@ -69,6 +69,40 @@ from meta_quest_teleop.reader import MetaQuestReader
 
 from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
+
+
+def _embodiment_names_ordered(spec: list[str] | dict[int, str]) -> list[str]:
+    """Ordered channel names from an embodiment entry (list or index→name map)."""
+    if isinstance(spec, dict):
+        return [spec[i] for i in sorted(spec)]
+    return list(spec)
+
+
+def convert_predictions_to_horizon(
+    predictions: dict[DataType, dict[str, BatchedNCData]],
+) -> dict[str, list[float]]:
+    """Convert predictions to horizon dict."""
+    print('[convert_predictions_to_horizon]')
+    horizon = {}
+    if DataType.JOINT_TARGET_POSITIONS in predictions:
+        joint_data = predictions[DataType.JOINT_TARGET_POSITIONS]
+        for joint_name in JOINT_NAMES:
+            if joint_name in joint_data:
+                batched = joint_data[joint_name]
+                if isinstance(batched, BatchedJointData):
+                    values = batched.value[0, :, 0].cpu().numpy().tolist()
+                    horizon[joint_name] = values
+
+    # Extract gripper open amounts
+    if DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in predictions:
+        print('[convert_predictions_to_horizon] Extracting gripper open amounts')
+        gripper_data = predictions[DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS]
+        if GRIPPER_NAME in gripper_data:
+            batched = gripper_data[GRIPPER_NAME]
+            if isinstance(batched, BatchedParallelGripperOpenAmountData):
+                values = batched.open_amount[0, :, 0].cpu().numpy().tolist()
+                horizon[GRIPPER_NAME] = values
+    return horizon
 
 
 def toggle_robot_enabled_status(
@@ -85,12 +119,12 @@ def toggle_robot_enabled_status(
         # Reset teleop state when disabling robot
         data_manager.set_teleop_state(False, None, None)
         visualizer.update_toggle_robot_enabled_status(False)
-        print("✓ 🔴 Robot disabled (Button A)")
+        print("✓ 🔴 Robot disabled")
     elif robot_activity_state == RobotActivityState.DISABLED:
         if robot_controller.resume_robot():
             data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
             visualizer.update_toggle_robot_enabled_status(True)
-            print("✓ 🟢 Robot enabled (Button A)")
+            print("✓ 🟢 Robot enabled")
         else:
             print("✗ Failed to enable robot")
 
@@ -110,7 +144,7 @@ def home_robot(data_manager: DataManager, robot_controller: PiperController) -> 
             # Revert to ENABLED on failure
             data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
     else:
-        print("⚠️  Button B pressed but robot is not enabled")
+        print("⚠️  Home command received but robot is not enabled")
 
 
 def run_policy(
@@ -123,25 +157,70 @@ def run_policy(
     """Handle Run Policy button press to capture state and get policy prediction."""
     print("Running policy...")
 
-    if not log_robot_state_for_policy(data_manager, input_embodiment_description):
-        print("✗ No data available to run policy")
-        return False
-
+    # Get available data from data_manager (only log what the model expects)
+    current_joint_angles = None
+    gripper_open_value = None
     rgb_image = None
+
+    if DataType.JOINT_POSITIONS in input_embodiment_description:
+        current_joint_angles = data_manager.get_current_joint_angles()
+        if current_joint_angles is not None:
+            joint_angles_rad = np.radians(current_joint_angles)
+            positions_by_name = {
+                jn: float(ang) for jn, ang in zip(JOINT_NAMES, joint_angles_rad)
+            }
+            policy_joint_order = _embodiment_names_ordered(
+                input_embodiment_description[DataType.JOINT_POSITIONS]
+            )
+            joint_positions_dict = {
+                jn: positions_by_name[jn] for jn in policy_joint_order
+            }
+            nc.log_joint_positions(joint_positions_dict)
+            print("  ✓ Logged joint positions")
+        else:
+            print("  ⚠️  No current joint angles available")
+
+    if DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS in input_embodiment_description:
+        gripper_open_value = data_manager.get_current_gripper_open_value()
+        if gripper_open_value is not None:
+            nc.log_parallel_gripper_open_amount(GRIPPER_NAME, gripper_open_value)
+            print("  ✓ Logged gripper open amount")
+        else:
+            print("  ⚠️  No gripper open value available")
+
     if DataType.RGB_IMAGES in input_embodiment_description:
-        rgb_names = embodiment_names_ordered(
+        rgb_names = _embodiment_names_ordered(
             input_embodiment_description[DataType.RGB_IMAGES]
         )
+        logged_any_rgb = False
+        for camera_name in rgb_names:
+            img = data_manager.get_rgb_image(camera_name)
+            if img is not None:
+                nc.log_rgb(camera_name, img)
+                logged_any_rgb = True
+        if logged_any_rgb:
+            print("  ✓ Logged RGB image(s)")
+        else:
+            print("  ⚠️  No RGB image available")
         if rgb_names:
             rgb_image = data_manager.get_rgb_image(rgb_names[0])
-    current_joint_angles = data_manager.get_current_joint_angles()
+
+    # Check if we have at least some data to run the policy
+    if (
+        current_joint_angles is None
+        and gripper_open_value is None
+        and rgb_image is None
+    ):
+        print("✗ No data available to run policy")
+        return False
 
     # Get policy prediction
     try:
         start_time = time.time()
         predictions = policy.predict(timeout=60)
+        inference_time = time.time() - start_time
         prediction_horizon = convert_predictions_to_horizon(predictions)
-        end_time = time.time()
+        conversion_time = time.time() - start_time - inference_time
         
         # Calculate length directly from the new prediction dictionary
         horizon_length = 0
@@ -150,8 +229,9 @@ def run_policy(
             horizon_length = len(prediction_horizon[first_key])
             
         print(
-            f"  ✓ Got {horizon_length} actions in {end_time - start_time:.3f} seconds"
+            f"  ✓ Got policy prediction in {inference_time:.2f} seconds with horizon length {horizon_length}"
         )
+        print(f"  ✓ Conversion time: {conversion_time:.2f} seconds")
 
         prediction_ratio = visualizer.get_prediction_ratio()
         policy_state.set_execution_ratio(prediction_ratio)
@@ -398,7 +478,6 @@ def policy_execution_thread(
     robot_controller: PiperController,
     visualizer: RobotVisualizer,
     input_embodiment_description: EmbodimentDescription,
-    output_gripper_names: list[str] | None,
 ) -> None:
     """Policy execution thread."""
     dt_execution = 1.0 / POLICY_EXECUTION_RATE
@@ -448,13 +527,20 @@ def policy_execution_thread(
                         time.time() - targeting_pose_start_time
                         < TARGETING_POSE_TIME_THRESHOLD
                     ):
-                        previous_joint_target_positions_deg = (
-                            joint_targets_deg_at_index(
-                                locked_horizon, execution_index - 1
-                            )
-                        )
-                        if previous_joint_target_positions_deg is None:
+                        # Get previous action from horizon
+                        if not all(
+                            joint_name in locked_horizon for joint_name in JOINT_NAMES
+                        ):
                             break
+                        previous_joint_target_positions_rad = np.array(
+                            [
+                                locked_horizon[joint_name][execution_index - 1]
+                                for joint_name in JOINT_NAMES
+                            ]
+                        )
+                        previous_joint_target_positions_deg = np.degrees(
+                            previous_joint_target_positions_rad
+                        )
                         joint_errors = np.abs(
                             current_joint_angles - previous_joint_target_positions_deg
                         )
@@ -462,13 +548,23 @@ def policy_execution_thread(
                             break
                         time.sleep(0.001)
 
-                current_joint_target_positions_deg = joint_targets_deg_at_index(
-                    locked_horizon, execution_index
-                )
-                if current_joint_target_positions_deg is not None:
+                # Send current action to robot (if available)
+                if all(joint_name in locked_horizon for joint_name in JOINT_NAMES):
+                    current_joint_target_positions_rad = np.array(
+                        [
+                            locked_horizon[joint_name][execution_index]
+                            for joint_name in JOINT_NAMES
+                        ]
+                    )
+                    current_joint_target_positions_deg = np.degrees(
+                        current_joint_target_positions_rad
+                    )
+                    # Update data_manager with target joint angles for visualization
                     data_manager.set_target_joint_angles(
                         current_joint_target_positions_deg
                     )
+
+                    # Verify robot controller is enabled before sending commands
                     if robot_controller.is_robot_enabled():
                         robot_controller.set_target_joint_angles(
                             current_joint_target_positions_deg
@@ -478,13 +574,14 @@ def policy_execution_thread(
                             f"⚠️  Robot controller not enabled, skipping command at index {execution_index}"
                         )
 
-                gripper_target = gripper_open_at_index(
-                    locked_horizon,
-                    execution_index,
-                    gripper_names=output_gripper_names,
-                )
-                if gripper_target is not None:
-                    robot_controller.set_gripper_open_value(gripper_target)
+                # Send current gripper open value to robot (if available)
+                if GRIPPER_NAME in locked_horizon:
+                    current_gripper_target_open_value = locked_horizon[GRIPPER_NAME][
+                        execution_index
+                    ]
+                    robot_controller.set_gripper_open_value(
+                        current_gripper_target_open_value
+                    )
 
                 # Update execution index
                 policy_state.increment_execution_action_index()
@@ -557,9 +654,7 @@ def update_visualization(
             joint_config_rad = np.radians(target_joint_angles)
             visualizer.update_ghost_robot_pose(joint_config_rad)
         # Disable buttons during execution
-        # visualizer.set_start_policy_execution_button_disabled(True)
         visualizer.set_run_policy_button_disabled(True)
-        # visualizer.set_run_and_start_policy_execution_button_disabled(True)
         # Play/Stop button is enabled during execution so we can stop if needed
         visualizer.set_play_policy_button_disabled(False)
 
@@ -608,7 +703,6 @@ def update_visualization(
             not (robot_enabled and has_horizon)
         )
         visualizer.set_run_policy_button_disabled(not robot_enabled)
-        #visualizer.set_run_and_start_policy_execution_button_disabled(not robot_enabled)
         visualizer.set_play_policy_button_disabled(not robot_enabled)
 
         # Update policy status
@@ -633,6 +727,11 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="IP address of Meta Quest device (optional, defaults to None for auto-discovery)",
+    )
+    parser.add_argument(
+        "--no-quest",
+        action="store_true",
+        help="Disable Meta Quest controller integration entirely.",
     )
     policy_group = parser.add_mutually_exclusive_group(required=True)
     policy_group.add_argument(
@@ -690,6 +789,41 @@ if __name__ == "__main__":
         overwrite=False,
     )
 
+    # Load policy (cross-embodiment + preprocessing; same pattern as example 6)
+    input_embodiment_description: EmbodimentDescription = {
+        DataType.JOINT_POSITIONS: {
+            0: "joint1",
+            1: "joint2",
+            2: "joint3",
+            3: "joint4",
+            4: "joint5",
+            5: "joint6",
+        },
+        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: {0: GRIPPER_NAME},
+        DataType.RGB_IMAGES: {0: CAMERA_NAMES[0]},
+    }
+    output_embodiment_description: EmbodimentDescription = {
+        DataType.JOINT_TARGET_POSITIONS: {
+            0: "joint1",
+            1: "joint2",
+            2: "joint3",
+            3: "joint4",
+            4: "joint5",
+            5: "joint6",
+        },
+        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: {0: GRIPPER_NAME},
+    }
+    input_preprocessing_config: PreprocessingConfiguration = {
+        DataType.RGB_IMAGES: [ResizePad(size=(224, 224))],
+    }
+
+    print("\n📋 Input embodiment description:")
+    for data_type, spec in input_embodiment_description.items():
+        print(f"  {data_type.name}: {_embodiment_names_ordered(spec)}")
+    print("\n📋 Output embodiment description:")
+    for data_type, spec in output_embodiment_description.items():
+        print(f"  {data_type.name}: {_embodiment_names_ordered(spec)}")
+
     if args.remote_endpoint_name is not None:
         print(
             f"\n🤖 Connecting to remote policy endpoint: {args.remote_endpoint_name}..."
@@ -707,35 +841,18 @@ if __name__ == "__main__":
         policy = nc.policy(
             train_run_name=args.train_run_name,
             device="cuda",
-<<<<<<< HEAD
-=======
             input_embodiment_description=input_embodiment_description,
             output_embodiment_description=output_embodiment_description,
-            #input_preprocessing_config=input_preprocessing_config,
->>>>>>> 895900c (fix: make the policy inference work sequentially from remote inference.)
-            robot_name=args.robot_name,
         )
     else:
         print(f"\n🤖 Loading policy from model file: {args.model_path}...")
         policy = nc.policy(
             model_file=args.model_path,
             device="cuda",
-            robot_name=args.robot_name,
+            input_embodiment_description=input_embodiment_description,
+            output_embodiment_description=output_embodiment_description,
         )
     print("  ✓ Policy loaded successfully")
-    input_embodiment_description, output_embodiment_description = (
-        get_policy_embodiments(policy)
-    )
-    print_policy_embodiments(
-        input_embodiment_description, output_embodiment_description
-    )
-    output_gripper_names = None
-    if output_embodiment_description is not None:
-        gripper_spec = output_embodiment_description.get(
-            DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS
-        )
-        if gripper_spec is not None:
-            output_gripper_names = embodiment_names_ordered(gripper_spec)
 
     # Initialize policy state
     policy_state = PolicyState()
@@ -770,16 +887,20 @@ if __name__ == "__main__":
     )
     joint_state_thread_obj.start()
 
-    # Initialize Meta Quest reader
-    print("\n🎮 Initializing Meta Quest reader...")
-    quest_reader = MetaQuestReader(ip_address=args.ip_address, port=5555, run=True)
+    # Initialize and Start Meta Quest reader (Conditional)
+    quest_reader = None
+    quest_thread = None
+    if not args.no_quest:
+        print("\n🎮 Initializing Meta Quest reader...")
+        quest_reader = MetaQuestReader(ip_address=args.ip_address, port=5555, run=True)
 
-    # Start data collection thread
-    print("\n🎮 Starting quest reader thread...")
-    quest_thread = threading.Thread(
-        target=quest_reader_thread, args=(data_manager, quest_reader), daemon=True
-    )
-    quest_thread.start()
+        print("\n🎮 Starting quest reader thread...")
+        quest_thread = threading.Thread(
+            target=quest_reader_thread, args=(data_manager, quest_reader), daemon=True
+        )
+        quest_thread.start()
+    else:
+        print("\n🎮 Meta Quest reader disabled via --no-quest flag.")
 
     # set initial configuration to current joint angles
     current_joint_angles = data_manager.get_current_joint_angles()
@@ -860,7 +981,7 @@ if __name__ == "__main__":
             args.continuous_mode,
         )
     )
-    
+
     # Set up execution mode dropdown callback to sync with PolicyState
     visualizer.set_execution_mode_callback(
         lambda: policy_state.set_execution_mode(
@@ -868,14 +989,15 @@ if __name__ == "__main__":
         )
     )
 
-    # Register Quest reader button callbacks (after visualizer is created)
-    quest_reader.on(
-        "button_a_pressed",
-        lambda: toggle_robot_enabled_status(data_manager, robot_controller, visualizer),
-    )
-    quest_reader.on(
-        "button_b_pressed", lambda: home_robot(data_manager, robot_controller)
-    )
+    # Register Quest reader button callbacks conditionally
+    if not args.no_quest and quest_reader is not None:
+        quest_reader.on(
+            "button_a_pressed",
+            lambda: toggle_robot_enabled_status(data_manager, robot_controller, visualizer),
+        )
+        quest_reader.on(
+            "button_b_pressed", lambda: home_robot(data_manager, robot_controller)
+        )
 
     # Start policy execution thread
     print("\n🤖 Starting policy execution thread...")
@@ -888,7 +1010,6 @@ if __name__ == "__main__":
             robot_controller,
             visualizer,
             input_embodiment_description,
-            output_gripper_names,
         ),
         daemon=True,
     )
@@ -897,17 +1018,20 @@ if __name__ == "__main__":
     print()
     print("🚀 Starting teleoperation with policy testing...")
     print("🎮 CONTROLS:")
-    print("   1. Press BUTTON A or Enable Robot button to enable/disable robot")
-    print("   2. You have same control over the robot as in teleoperation.")
-    print("      - Hold RIGHT GRIP to activate teleoperation")
-    print("      - Move controller - robot follows!")
-    print("      - Hold RIGHT TRIGGER to close gripper")
-    print("      - Press BUTTON A or Enable Robot button to enable/disable robot")
-    print("      - Press BUTTON B or Home Robot button to send robot home")
+    if not args.no_quest:
+        print("   1. Press BUTTON A or Enable Robot button to enable/disable robot")
+        print("   2. You have same control over the robot as in teleoperation.")
+        print("      - Hold RIGHT GRIP to activate teleoperation")
+        print("      - Move controller - robot follows!")
+        print("      - Hold RIGHT TRIGGER to close gripper")
+        print("      - Press BUTTON A or Enable Robot button to enable/disable robot")
+        print("      - Press BUTTON B or Home Robot button to send robot home")
+    else:
+        print("   1. Click Enable Robot button in Viser to enable/disable robot")
+        print("   2. (Meta Quest controls disabled via --no-quest flag)")
     print("   3. Click 'Run Policy' (Preview) to generate and visualize a prediction horizon")
     print("   4. Click 'Execute Policy' to run the currently previewed horizon")
     print("   5. Click 'Play Policy' (Receding Horizon) to constantly predict and execute the first action")
-    # print("   6. Click 'Play Policy' button to play policy")
     print("⚠️  Press Ctrl+C to exit")
     print()
     print("🌐 Open browser: http://localhost:8080")
@@ -931,8 +1055,13 @@ if __name__ == "__main__":
     # shutdown threads
     data_manager.request_shutdown()
     data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
-    quest_thread.join()
-    quest_reader.stop()
+    
+    # Conditional cleanup for Quest
+    if quest_thread is not None:
+        quest_thread.join()
+    if quest_reader is not None:
+        quest_reader.stop()
+        
     ik_thread.join()
     camera_thread_obj.join()
     robot_controller.cleanup()
