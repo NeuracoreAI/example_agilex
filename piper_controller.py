@@ -91,7 +91,7 @@ class PiperController:
 
         # Gripper range in degrees (for internal SDK communication)
         self.GRIPPER_DEGREES_MIN = -10.00
-        self.GRIPPER_DEGREES_MAX = 100.00
+        self.GRIPPER_DEGREES_MAX = 80.00 # cube stacking halid is 80, lemon picking pruthvi is 80
         self.GRIPPER_DEGREES_RANGE = self.GRIPPER_DEGREES_MAX - self.GRIPPER_DEGREES_MIN
 
         # Home gripper value in degrees

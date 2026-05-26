@@ -17,6 +17,7 @@ This project is a complete example showcasing how to use Neuracore with the Agil
 ## Prerequisites
 
 - Python 3.10
+- sudo apt-get install sox
 - Conda (for environment management)
 - Meta Quest device setup (see `meta_quest_teleop/README.md` for details)
 - Realsense camera 
