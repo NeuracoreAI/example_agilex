@@ -8,6 +8,7 @@ logs data to Neuracore.
 
 import argparse
 import multiprocessing
+import subprocess
 import sys
 import threading
 import time
@@ -60,12 +61,26 @@ from pink_ik_solver import PinkIKSolver
 from piper_controller import PiperController
 
 
+def play_audio_feedback(action: str) -> None:
+    """Play distinct synthesized tones asynchronously using SoX."""
+    # Start = High pitch (880 Hz), Stop = Low pitch (440 Hz)
+    freq = "880" if action == "start" else "440"
+    try:
+        # -q: quiet, -n: no input file, synth: generate audio, 0.3: duration, sine: wave type
+        subprocess.Popen(
+            ["play", "-q", "-n", "synth", "0.3", "sine", freq], 
+            stderr=subprocess.DEVNULL
+        )
+    except Exception as e:
+        print(f"⚠️ Failed to play tone (is SoX installed?): {e}")
+
 def log_to_neuracore_on_change_callback(
     name: str, payload: dict[str, Any], timestamp: float
 ) -> None:
     """Log data to queue on change callback."""
     # Call appropriate Neuracore logging function
     try:
+        #print(f"\n📤 Logging {name} to Neuracore with timestamp {timestamp:.3f}...")
         if name == "log_joint_positions":
             nc.log_joint_positions(payload, timestamp=timestamp)
         elif name == "log_joint_torques":
@@ -131,6 +146,7 @@ def on_button_rj_pressed() -> None:
         try:
             nc.start_recording()
             print("✓ 🔴 Recording started (Button RJ)")
+            play_audio_feedback("start")  # <-- Trigger distinct START sound
         except Exception as e:
             print(f"✗ Failed to start recording. Exception: {e}")
             print("Traceback:")
@@ -140,6 +156,7 @@ def on_button_rj_pressed() -> None:
         try:
             nc.stop_recording()
             print("✓ ⏹️ Recording stopped (Button RJ)")
+            play_audio_feedback("stop")  # <-- Trigger distinct STOP sound
         except Exception as e:
             print(f"✗ Failed to stop recording. Exception: {e}")
             print("Traceback:")

@@ -58,7 +58,7 @@ CAMERA_HEIGHT = 480
 # NEUTRAL_JOINT_ANGLES = [-1.003, 80.167, -51.064, -4.127, 16.548, 2.619]
 # NEUTRAL_JOINT_ANGLES = [0.4, 112.3, -101.0, -2.6, 63.2, 18.3]
 NEUTRAL_JOINT_ANGLES = [-9.3, 86.7, -86.6, 1.8, 61.7, -5.1] #Lemon pick taskpruthvi)
-# NEUTRAL_JOINT_ANGLES = [-1.6, 52.2, -54.3, -3.2, 43.1, 4.7]  # halid
+NEUTRAL_JOINT_ANGLES = [-1.6, 52.2, -54.3, -3.2, 43.1, 4.7]  # halid
 # Joint Angles (rad):  J1: -0.028 rad (-1.6°)  J2: 0.910 rad (52.2°)  J3: -0.948 rad (-54.3°)  J4: -0.057 rad (-3.2°)  J5: 0.752 rad (43.1°)  J6: 0.083 rad (4.7°)
                                                                                                                                                            
 NEUTRAL_END_EFFECTOR_POSE = [455.257, -46.344, 172.213, 176.205, -14.545, 29.621]
@@ -71,7 +71,7 @@ POLICY_EXECUTION_RATE = 20.0  # Hz
 PREDICTION_HORIZON_EXECUTION_RATIO = (
     1.0  # percentage of the prediction horizon that is executed
 )
-MAX_SAFETY_THRESHOLD = 50.0  # degrees
+MAX_SAFETY_THRESHOLD = 200.0  # degrees
 MAX_ACTION_ERROR_THRESHOLD = 3.0  # degrees
 TARGETING_POSE_TIME_THRESHOLD = 1.0  # seconds
 
