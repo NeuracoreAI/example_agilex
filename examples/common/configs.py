@@ -57,7 +57,7 @@ CAMERA_HEIGHT = 480
 # # Initial neutral pose for robot (mm and degrees)
 # NEUTRAL_JOINT_ANGLES = [-1.003, 80.167, -51.064, -4.127, 16.548, 2.619]
 # NEUTRAL_JOINT_ANGLES = [0.4, 112.3, -101.0, -2.6, 63.2, 18.3]
-NEUTRAL_JOINT_ANGLES = [-9.3, 86.7, -86.6, 1.8, 61.7, -5.1] #Lemon pick taskpruthvi)
+# NEUTRAL_JOINT_ANGLES = [-9.3, 86.7, -86.6, 1.8, 61.7, -5.1] #Lemon pick taskpruthvi)
 NEUTRAL_JOINT_ANGLES = [-1.6, 52.2, -54.3, -3.2, 43.1, 4.7]  # halid
 # Joint Angles (rad):  J1: -0.028 rad (-1.6°)  J2: 0.910 rad (52.2°)  J3: -0.948 rad (-54.3°)  J4: -0.057 rad (-3.2°)  J5: 0.752 rad (43.1°)  J6: 0.083 rad (4.7°)
                                                                                                                                                            
