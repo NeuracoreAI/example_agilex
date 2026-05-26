@@ -15,6 +15,17 @@ import numpy as np
 from .configs import GRIPPER_NAME, JOINT_NAMES
 from .one_euro_filter import OneEuroFilterTransform
 
+import threading
+import time
+import queue
+from typing import Any, Callable
+import numpy as np
+
+from .configs import GRIPPER_NAME, JOINT_NAMES
+from .states import (
+    RobotActivityState, ControllerState, TeleopState, 
+    RobotState, IKState, CameraState
+)
 
 class RobotActivityState(Enum):
     """Robot activity state enumeration."""
@@ -98,33 +109,19 @@ class CameraState:
         # Map from camera name -> latest RGB image
         self.rgb_images: dict[str, np.ndarray] = {}
 
+
+
 class DataManager:
-    """Main state container coordinating all state groups.
-
-    This class manages shared data between threads:
-    - Data collection thread: updates controller data
-    - IK solver thread: reads controller data, updates joint solutions
-    - Main thread: reads everything for visualization
-
-    Uses separate locks for each state group to reduce contention.
-    """
+    """Main state container coordinating all state groups."""
     def __init__(self) -> None:
-        """Initialize DataManager with background callback processing."""
         self._controller_state = ControllerState()
         self._teleop_state = TeleopState()
         self._robot_state = RobotState()
         self._ik_state = IKState()
         self._camera_state = CameraState()
 
-        # System state
         self._shutdown_event = threading.Event()
-
-        # Asynchronous processing elements
-        self._on_change_callback: (
-            Callable[[str, dict[str, Any], float], None] | None
-        ) = None
-        
-        # Maxsize 60 matches ~1 second of video frames buffer if disk spikes
+        self._on_change_callback: Callable[[str, dict[str, Any], float], None] | None = None
         self._callback_queue: queue.Queue = queue.Queue(maxsize=60)
         
         self._worker_thread = threading.Thread(
@@ -133,6 +130,8 @@ class DataManager:
             daemon=True
         )
         self._worker_thread.start()
+        
+    # ... (Keep the rest of the getter/setter methods like get_rgb_image, etc.) ...
 
     def set_on_change_callback(
         self, on_change_callback: Callable[[str, dict[str, Any], float], None]
