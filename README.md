@@ -1,3 +1,4 @@
+
 # AgileX Piper Robot Teleoperation with Neuracore
 
 <div align="center">
@@ -12,289 +13,266 @@
 
 </div>
 
-This project is a complete example showcasing how to use Neuracore with the AgileX Piper robot. The project provides examples teleoperating the AgileX Piper robot using a Meta Quest controller, collecting demonstration data with [Neuracore](https://neuracore.com/), deploying trained policies, and an easy interface to tune most of the associated parameters.
+This repository provides a complete, production-ready framework for integrating the AgileX Piper robotic arm with [Neuracore](https://neuracore.com/). It includes tools for teleoperating the robot using a Meta Quest VR headset, collecting perfectly synchronized demonstration datasets, validating and replaying data, and deploying trained AI policies directly to the hardware.
 
-## Prerequisites
+---
 
-- Python 3.10
-- sudo apt-get install sox
-- Conda (for environment management)
-- Meta Quest device setup (see `meta_quest_teleop/README.md` for details)
-- Realsense camera 
+## 📋 Prerequisites
 
-## Installation
+Before starting, ensure your system meets the following requirements:
+* **OS/Environment:** Ubuntu/Linux with Conda installed.
+* **Python:** Version 3.10 or higher.
+* **System Packages:** `sudo apt-get install sox`
+* **Hardware:** * AgileX Piper robot arm connected via CAN bus.
+    * RealSense camera (or compatible USB webcam).
+    * Meta Quest headset (Developer Mode enabled, ADB USB debugging allowed).
 
-### 1. Clone the Repository
+---
 
+## ⚙️ Installation
+
+### 1. Clone the Main Repository
+First, clone this repository to your workspace:
 ```bash
 git clone git@github.com:NeuracoreAI/example_agilex.git
 cd example_agilex
+
 ```
 
-### 2. Create Conda Environment
+### 2. Create the Conda Environment
 
-Create and activate the conda environment:
+Create and activate the dedicated Python environment:
 
 ```bash
 conda env create -f environment.yaml
 conda activate piper-teleop
+
 ```
 
-### 3. Clone and Install Meta Quest Teleop Package
+### 3. Install the Meta Quest Teleop Package
 
-Clone the Meta Quest teleoperation repository and install it:
-
-**NOTE**: Make sure you're installing it inside the `piper-teleop` conda environment.
+To keep dependencies organized, clone the Meta Quest teleoperation package **alongside** (in the parent directory of) your `example_agilex` folder, then install it into your active conda environment:
 
 ```bash
-git clone https://github.com/NeuracoreAI/meta_quest_teleop.git ## Halid Note: it is not clear where it should be cloned exactly.
+# Navigate out of example_agilex
+cd .. 
+
+# Clone and install the Meta Quest reader
+git clone [https://github.com/NeuracoreAI/meta_quest_teleop.git](https://github.com/NeuracoreAI/meta_quest_teleop.git)
 cd meta_quest_teleop
 pip install -e .
-cd ..
-```
 
-## Data Flow
-
-The teleoperation system follows this data flow:
+# Return to the main project directory
+cd ../example_agilex
 
 ```
-Meta Quest Controller
-    ↓
-Meta Quest Reader (originally by RAIL, improved by Neuracore)
-    ↓
-Piper Controller (improved by Neuracore)
-    ↓
-Pink IK Solver
-    ↓
-AgileX Piper Robot
+
+---
+
+## 🔄 System Architecture & Data Flow
+
+The teleoperation stack operates asynchronously to ensure smooth hardware control and precise data logging:
+
+```text
+[ Meta Quest VR Headset ] 
+           ↓ (ADB / WiFi)
+[ Meta Quest Reader ] (Translates 6D poses & button states)
+           ↓ 
+[ Pink IK Solver ] (Converts spatial targets to joint angles)
+           ↓ 
+[ Piper Controller ] (Applies safety limits & smoothing)
+           ↓ (CAN Bus)
+[ AgileX Piper Robot ] 
+
 ```
 
-**Components**:
-- **Meta Quest Reader**: Reads controller pose and button inputs from the Meta Quest device
-- **Piper Controller**: Manages robot state and sends joint commands via CAN interface
-- **Pink IK Solver**: Solves inverse kinematics to convert end-effector poses from the meta quest into joint angles
+---
 
-## Usage
+## 🚀 Usage Guide
 
-**IMPORTANT NOTE:** Make sure that you have followed the instructions to set up the meta quest (according to [meta_quest_teleop](https://github.com/NeuracoreAI/meta_quest_teleop) README instructions) and that your equipment are functioning before starting the examples. Same applies to the piper robot! 
+> ⚠️ **HARDWARE SAFETY NOTE**: This software controls a physical, high-torque industrial robot. **Always keep your hand on the physical emergency stop.** Before running any script, ensure the robot's workspace is entirely clear of obstacles and personnel.
 
 ### 1. Tune Teleoperation Parameters
 
-**Script**: `examples/1_tune_teleop_params.py`
+**Script:** `examples/1_tune_teleop_params.py`
 
-This script allows you to teleoperate the robot and tune control parameters using a GUI before you start collecting data. Useful for finding the best hyperparameters (optimal IK parameters, controller filter settings, and scaling factors) for your style of teleoperation. 
-
-**NOTE:** The provided default hyperparameters were tuned on the AgileX Piper robot with a meta quest 3 and worked well for our demos. Make sure to
-copy your values into the `configs.py` if you change them in the GUI and find more suitable parameters.
+Use this script to safely test the robot and dial in your movement preferences before collecting data. It launches a web UI where you can adjust IK weights, motion smoothing (1-Euro filter), and scaling factors on the fly.
 
 ```bash
-python examples/1_tune_teleop_params.py [--ip-address <quest-ip>]
+python examples/1_tune_teleop_params.py [--ip-address <quest-ip>] [--ik-config ik_conf/default.yaml]
+
 ```
 
-**Arguments**:
-- `--ip-address`: IP address of Meta Quest device (optional). Only needed when using WiFi connection. If not provided, defaults to auto-discovery via USB.
-
-**Controls**:
-- **Button A**: Enable/disable robot
-- **Right Grip**: Activate teleoperation (dead man's switch)
-- **Right Trigger**: Close/open gripper
-- **Button B**: Move robot to home position
-- **GUI**: Adjust IK parameters, filter settings, scaling factors
+* **Button A:** Enable/Disable robot hardware.
+* **Right Grip (Hold):** Dead man's switch. You must hold this to move the robot.
+* **Right Trigger:** Open/Close parallel gripper.
+* **Button B:** Return robot to home position.
+* **Save Config:** Once tuned, use the UI button to save your perfect settings to YAML.
 
 ### 2. Collect Teleoperation Data
 
-**Script**: `examples/2_collect_teleop_data_with_neuracore.py`
+**Script:** `examples/2_collect_teleop_data_with_neuracore.py`
 
-Now that you have a well-tuned setup, you can use this script to record teleoperation demonstrations to Neuracore.
-
-```bash
-python examples/2_collect_teleop_data_with_neuracore.py [--ip-address <quest-ip>] [--dataset-name <name>]
-```
-
-**Note**: You must be logged into Neuracore.
-
-**Arguments**:
-- `--ip-address`: IP address of Meta Quest device (optional). Only needed when using WiFi connection. If not provided, defaults to auto-discovery via USB.
-- `--dataset-name`: Name for the dataset (optional). If an existing dataset name is passed, the script will resume logging into this dataset. Otherwise, it will create a dataset with the specified name (or auto-generate one if not provided).
-
-**Controls**:
-- Same as script 1, plus:
-- **Right Joystick Press**: Start/stop data recording
-
-### 3. Replay Neuracore Episodes
-
-**Script**: `examples/3_replay_neuracore_episodes.py`
-
-**Halid Note**: This step can be dangerous. always ready to press the emergency. The index start from 0 not 1, hence if you see number as x in the frontend, you need to run x-1. I cannot rerun this command again successfully after the first time running. The frequency should be default as 20.
-
-Replay recorded episodes from a Neuracore dataset on the physical robot.
+Once your parameters are tuned, use this script to record demonstrations directly to the Neuracore cloud.
 
 ```bash
-python examples/3_replay_neuracore_episodes.py --dataset-name <dataset-name> [--frequency <hz>] [--episode-index <index>]
+python examples/2_collect_teleop_data_with_neuracore.py [--dataset-name <name>] [--ik-config ik_conf/default.yaml]
+
 ```
 
-**Arguments**:
-- `--dataset-name`: Name of the Neuracore dataset to replay
-- `--frequency`: Playback frequency in Hz (default: 0). 0 plays the data aperiodically (not synchronized at a certain frequency as it was recorded). 
-- `--episode-index`: Which episode to replay (default: 0). -1 will start replaying all the episodes one after the other.
+* **Right Joystick (Press):** Start/Stop recording an episode.
+* *(Note: Passing an existing `--dataset-name` will append new episodes to it. Otherwise, a new timestamped dataset is created).*
 
-**NOTE:** please be careful that the robot **will start moving** on the same trajectory that was recorded. Pressing `ctrl+C`
-will gracefully disable the robot and it will cut power to the motors after 5 seconds.
+### 3. Replay Neuracore Episodes (Hardware Validation)
+
+**Script:** `examples/3_replay_neuracore_episodes.py`
+
+This script downloads a dataset from Neuracore and forces the physical robot to perfectly re-enact the recorded trajectory.
+
+> 🛑 **CRITICAL SAFETY WARNINGS**:
+> * **Movement:** The robot will move identically to the recorded data. **Be ready to press the emergency stop.** Pressing `Ctrl+C` will gracefully halt the script and cut power to the motors after 5 seconds.
+> * **Episode Indexing:** The index starts at 0. If you want to replay the episode labeled "3" in the Neuracore web dashboard, you must pass `--episode-index 2`.
+> * **Session Resets:** You may need to fully restart the script/robot if you wish to run multiple different replays back-to-back.
+> 
+> 
+
+```bash
+python examples/3_replay_neuracore_episodes.py --dataset-name <name> [--episode-index <index>] [--frequency 20]
+
+```
+
+* **`--frequency`:** Playback speed in Hz. The default is `20`. Passing `0` plays the data aperiodically (exactly as the raw packets were recorded).
+* **`--episode-index`:** Set to `-1` to replay all episodes in the dataset sequentially.
 
 ### 4. Rollout Neuracore Policy (Full GUI)
 
-**Script**: `examples/4_rollout_neuracore_policy.py`
+**Script:** `examples/4_rollout_neuracore_policy.py`
 
-This script should be run after you have trained a policy and want to see it running on the robot. From a GUI, it allows you to:
-- run the policy first and see the prediction horizon without moving the robot,
-- then execute this prediction horizon, if wanted.
-- or you can run and execute the prediction horizon immediately (for one prediction horizon only).
-- or you can play the policy where prediction horizon will be generated and executed in a loop, until stopped
-
-You also have all the same controls from **example_1**. This is to help you to manually move
-the robot to a certain state and then run the policy for testing.
-
+Deploy a trained AI model to the robot. This script opens a Viser 3D dashboard where you can manually pilot the robot to a starting state using the VR controller, preview the AI's predicted trajectory as a "ghost robot," and then execute the AI's actions.
 
 ```bash
-python examples/4_rollout_neuracore_policy.py --train-run-name <run-name> [--ip-address <quest-ip>]
+# Load from a local model file
+python examples/4_rollout_neuracore_policy.py --model-path <path-to-model.nc.zip>
+
+# Load from a cloud training run
+python examples/4_rollout_neuracore_policy.py --train-run-name <run-name>
+
+# Connect to an active remote inference server
+python examples/4_rollout_neuracore_policy.py --remote-endpoint-name <endpoint-name>
+
 ```
 
-or
+### 5. Rollout Neuracore Policy (Minimal / Headless)
 
-```bash
-python examples/4_rollout_neuracore_policy.py --model-path <path-to-model> [--ip-address <quest-ip>]
-```
+**Script:** `examples/5_rollout_neuracore_policy_minimal.py`
 
-**Arguments**:
-- `--train-run-name`: Name of the Neuracore training run (fetches model from Neuracore)
-- `--model-path`: Local path to model file (alternative to train-run-name)
-- `--ip-address`: IP address of Meta Quest device (optional). Only needed when using WiFi connection. If not provided, defaults to auto-discovery via USB.
-
-
-### 5. Rollout Neuracore Policy (Minimal)
-
-**Script**: `examples/5_rollout_neuracore_policy_minimal.py`
-
-Minimal version of policy rollout without GUI - This is a minimal clear example on how to deploy your policy with no extra features.
+A lightweight, terminal-only version of the rollout script. It strips away the 3D GUI and Meta Quest tracking, making it perfect for rapid, automated deployments in constrained compute environments.
 
 ```bash
 python examples/5_rollout_neuracore_policy_minimal.py --train-run-name <run-name>
+
 ```
 
-or
+### 6. Visualize Policy Offline
 
-```bash
-python examples/5_rollout_neuracore_policy_minimal.py --model-path <path-to-model>
-```
+**Script:** `examples/6_visualize_policy_from_dataset.py`
 
-**Arguments**:
-- `--train-run-name`: Name of the Neuracore training run (fetches model from Neuracore)
-- `--model-path`: Local path to model file (alternative to train-run-name)
-
-### 6. Visualize Policy from Dataset
-
-**Script**: `examples/6_visualize_policy_from_dataset.py`
-
-This script is useful when you don't have the robot ready but want to visualize how well the policy would perform. It visualizes policy predictions on episodes from a dataset without running on the robot. Useful for debugging and analysis.
+The safest way to validate a model. This script pulls camera and joint data from a recorded dataset, feeds it to your AI policy, and renders the AI's predictions in a 3D web simulation. No physical robot is required.
 
 ```bash
 python examples/6_visualize_policy_from_dataset.py --dataset-name <dataset-name> --train-run-name <run-name>
-```
-
-or
-
-```bash
-python examples/6_visualize_policy_from_dataset.py --dataset-name <dataset-name> --model-path <path-to-model>
-```
-
-**Arguments**:
-- `--dataset-name`: Name of the Neuracore dataset to visualize
-- `--train-run-name`: Name of the Neuracore training run (fetches model from Neuracore)
-- `--model-path`: Local path to model file (alternative to train-run-name)
-
-## Configuration
-
-Most configuration parameters are defined in `examples/common/configs.py`. Key parameters include:
-
-- **IK Solver Parameters**: Position/orientation costs, damping, solver settings
-- **Controller Filter**: One-euro filter parameters for smoothing controller input
-- **Scaling Factors**: Translation and rotation scaling for teleoperation
-- **Thread Rates**: Control loop frequencies for different components
-- **Robot Parameters**: Neutral joint angles, joint names, frame names
-
-## Project Structure
 
 ```
+
+---
+
+## 🛠️ Configuration (`ik_conf/default.yaml`)
+
+To ensure maximum flexibility, all hardware tuning parameters have been extracted into YAML configuration files located in the `ik_conf/` directory.
+
+You can modify `ik_conf/default.yaml` (or create your own profiles like `heavy_payload.yaml`) to adjust:
+
+* **IK Parameters:** Position vs. orientation costs, joint damping, and posture preferences.
+* **Filter Parameters:** 1-Euro smoothing coefficients to eliminate VR controller jitter.
+* **Teleop Parameters:** Spatial translation/rotation scaling (e.g., mapping 1cm of hand movement to 2cm of robot movement).
+
+Simply pass `--ik-config ik_conf/your_config.yaml` to any script to load a specific profile.
+
+---
+
+## 📁 Project Structure
+
+```text
 example_agilex/
-├── examples/              # Example scripts
+├── docs/                   # Documentation assets
+│   └── demo.gif            # Main teleoperation demonstration file
+├── examples/               # Task-specific execution scripts
 │   ├── 1_tune_teleop_params.py
 │   ├── 2_collect_teleop_data_with_neuracore.py
 │   ├── 3_replay_neuracore_episodes.py
 │   ├── 4_rollout_neuracore_policy.py
 │   ├── 5_rollout_neuracore_policy_minimal.py
 │   ├── 6_visualize_policy_from_dataset.py
-│   └── common/            # Shared utilities
-│       ├── configs.py     # Configuration parameters
-│       ├── data_manager.py
+│   ├── 7_teleop_with_pedal.py
+│   ├── combine_code.py     # Source aggregation helper script
+│   ├── ik_conf/            # Runtime parameter configurations
+│   │   └── default.yaml    # Tunable profile (IK, smoothing, and scaling targets)
+│   └── common/             # Monolithic background framework layers
+│       ├── config_parser.py
+│       ├── configs.py      # Hardcoded system constants
+│       ├── data_manager.py # Thread-safe global state machine
+│       ├── dataset_helpers.py
+│       ├── foot_pedal.py   # Keystroke mapping for foot pedals
+│       ├── one_euro_filter.py
+│       ├── policy_actions.py
+│       ├── policy_helpers.py
 │       ├── policy_state.py
 │       ├── robot_visualizer.py
-│       └── threads/       # Background thread implementations
-├── meta_quest_teleop/     # Meta Quest controller interface
-├── piper_controller.py    # Robot controller interface
-├── pink_ik_solver.py      # Inverse kinematics solver
-├── piper_description/     # Robot URDF and meshes
-└── environment.yaml       # Conda environment specification
+│       ├── shared_actions.py
+│       ├── states.py
+│       ├── system_bootstrap.py
+│       ├── utils.py
+│       ├── visualizer_core.py
+│       ├── visualizer_gui.py
+│       └── threads/        # Parallel processing workers
+│           ├── camera_usb.py
+│           ├── ik_solver.py
+│           ├── joint_state.py
+│           ├── quest_reader.py
+│           └── realsense_camera.py
+├── piper_description/      # Physical specifications of the manipulator
+│   ├── meshes/             # Component link geometry files (base_link.STL to link8.STL)
+│   └── urdf/               # AgileX Piper robot model definition file (.urdf)
+├── scripts/                # Isolated automation and helper scripts
+│   ├── oculus/             # Standalone VR tracking debug tools
+│   │   └── monitor_hand_movement.py
+│   └── piper/              # Hardware utilities
+│       ├── can_activate.sh # Bash routine to initialize the 'can0' interface
+│       └── piper_gui_control.py
+├── environment.yaml        # Conda dependency definitions
+├── pink_ik_solver.py       # Intermediary task space inverse kinematics layer
+├── piper_controller.py     # Native CAN-bus mapping driver for the robot
+└── vectorised_posture_task.py
+
 ```
 
-## Troubleshooting
+---
 
-### Import Errors
+## 🔧 Troubleshooting
 
-- Ensure conda environment is activated: `conda activate piper-teleop`
-- Verify all dependencies are installed: `conda env update -f environment.yaml`
-- Check that `meta_quest_teleop` is cloned and installed: 
-  ```bash
-  git clone https://github.com/NeuracoreAI/meta_quest_teleop.git
-  cd meta_quest_teleop
-  pip install -e .
-  cd ..
-  pip show meta_quest_teleop
-  ```
+* **ADB / Meta Quest Permission Errors:** If the scripts immediately crash complaining about Meta Quest access, put the headset on, look for a "USB Detected" popup, and click "Allow".
+* **CAN Bus / Robot Communication Issues:** If the script hangs on `Initializing robot on can0...`, verify your CAN interface is active. Run `ip link show can0`. If it is down, activate it using:
+```bash
+bash scripts/piper/can_activate.sh can0 1000000
 
-### Robot Communication Issues
+```
 
-- Verify CAN interface is active: `ip link show can0`
-- You can activate CAN interface with: `bash scripts/piper/can_activate.sh can0 1000000`
-- **NOTE:** you'll most probably need to activate the CAN interface when you first connect your robot  to your machine.
-- Check robot power and CAN bus connection
-- Ensure robot is in the correct mode for control
 
-### Neuracore Connection Issues
+* **Remote Endpoint Crashes:**
+If Scripts 4, 5, or 6 throw an `EndpointError`, verify that your deployment server is actually set to "Active" in the Neuracore web dashboard.
 
-- Verify you're logged in: `neuracore login`
-- Check network connectivity to Neuracore servers
-- Verify dataset names/run names/model paths are correct
+---
 
-## Safety Notes
+## 📄 License & Support
 
-⚠️ **IMPORTANT**: This software controls a physical robot. Always:
-
-- Keep emergency stop accessible
-- Start with robot disabled (Button A)
-- Test in a safe area with no obstacles
-- Monitor robot behavior closely, especially during first use
-- Use the dead man's switch (grip button) - robot stops when released
-- Ensure proper workspace clearance
-
-## License
-
-See LICENSE file for details.
-
-## Contributing
-
-Contributions are welcome! Please follow the project's coding standards and submit pull requests for review.
-
-## Support
-
-For issues and questions, please open an issue on the repository or contact the maintainers.
-
+See the [LICENSE](https://www.google.com/search?q=LICENSE) file for open-source terms. For questions, bug reports, or feature requests, please open an Issue on GitHub or join our community Discord server.
