@@ -51,7 +51,31 @@ class RobotVisualizerGUI:
         self._start_policy_execution_button = None
         self._play_policy_button = None
 
-    # --- UI Setup Methods ---
+        self._slow_translation_scale_handle = None
+        self._slow_rotation_scale_handle = None
+        self._wrist_step_handle = None
+        self._save_config_button = None
+
+    def add_advanced_tuning_controls(self, initial_slow_t: float, initial_slow_r: float, initial_wrist_step: float) -> None:
+        """Adds advanced sliders for precision movement and button toggles."""
+        self._slow_translation_scale_handle = self.server.gui.add_number("Slow Translation Scale", initial_slow_t, min=0.1, max=5.0, step=0.01)
+        self._slow_rotation_scale_handle = self.server.gui.add_number("Slow Rotation Scale", initial_slow_r, min=0.1, max=5.0, step=0.01)
+        self._wrist_step_handle = self.server.gui.add_number("Wrist Nudge (Degrees)", initial_wrist_step, min=1.0, max=45.0, step=1.0)
+        self._save_config_button = self.server.gui.add_button("💾 Save Config to YAML")
+
+    def get_slow_translation_scale(self) -> float:
+        return self._slow_translation_scale_handle.value
+
+    def get_slow_rotation_scale(self) -> float:
+        return self._slow_rotation_scale_handle.value
+
+    def get_wrist_step_degrees(self) -> float:
+        return self._wrist_step_handle.value
+
+    def set_save_config_callback(self, cb: Callable[[], Any]) -> None:
+        if self._save_config_button: 
+            self._save_config_button.on_click(lambda _: cb())
+
     def add_basic_controls(self) -> None:
         self._timing_handle = self.server.gui.add_number("IK Solve Time (ms)", 0.001, disabled=True)
         self._joint_angles_handle = self.server.gui.add_text("Joint Angles", "Waiting...")

@@ -1,0 +1,24 @@
+ik_parameters:
+  position_cost: 1.0
+  orientation_cost: 0.75
+  frame_task_gain: 0.4
+  lm_damping: 0.01
+  damping_cost: 0.25
+  solver_damping_value: 0.0001
+  posture_cost_vector:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.05
+  - 0.0
+  - 0.0
+filter_parameters:
+  controller_min_cutoff: 0.8
+  controller_beta: 0.05
+  controller_d_cutoff: 0.9
+teleop_parameters:
+  translation_scale: 1.5
+  rotation_scale: 1.2
+  slow_translation_scale: 0.6
+  slow_rotation_scale: 0.6
+  wrist_joint_button_step_degrees: 7.0

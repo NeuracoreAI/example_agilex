@@ -3,12 +3,8 @@ import numpy as np
 from typing import Tuple, List, Optional
 
 from common.configs import (
-    CONTROLLER_BETA, CONTROLLER_D_CUTOFF, CONTROLLER_MIN_CUTOFF,
     ROBOT_RATE, NEUTRAL_JOINT_ANGLES, NEUTRAL_END_EFFECTOR_POSE,
-    URDF_PATH, GRIPPER_FRAME_NAME, SOLVER_NAME, POSITION_COST,
-    ORIENTATION_COST, FRAME_TASK_GAIN, LM_DAMPING, DAMPING_COST,
-    SOLVER_DAMPING_VALUE, IK_SOLVER_RATE, POSTURE_COST_VECTOR,
-    TRANSLATION_SCALE, ROTATION_SCALE
+    URDF_PATH, GRIPPER_FRAME_NAME, SOLVER_NAME, IK_SOLVER_RATE
 )
 from common.data_manager import DataManager
 from piper_controller import PiperController
@@ -18,17 +14,27 @@ from common.threads.ik_solver import ik_solver_thread
 from common.threads.realsense_camera import camera_thread
 
 def bootstrap_robot_system(
+    config: dict,
     start_ik: bool = True,
     start_camera: bool = True
 ) -> Tuple[DataManager, PiperController, Optional[PinkIKSolver], List[threading.Thread]]:
-    """Initializes DataManager, PiperController, IK, and base background threads."""
     
+    # Extract config sections safely
+    filt_p = config.get("filter_parameters", {})
+    tele_p = config.get("teleop_parameters", {})
+    ik_p = config.get("ik_parameters", {})
+
     # 1. Initialize Data Manager
     data_manager = DataManager()
     data_manager.set_controller_filter_params(
-        CONTROLLER_MIN_CUTOFF, CONTROLLER_BETA, CONTROLLER_D_CUTOFF
+        filt_p.get("controller_min_cutoff", 0.8), 
+        filt_p.get("controller_beta", 0.05), 
+        filt_p.get("controller_d_cutoff", 0.9)
     )
-    data_manager.set_teleop_scaling(TRANSLATION_SCALE, ROTATION_SCALE)
+    data_manager.set_teleop_scaling(
+        tele_p.get("translation_scale", 1.5), 
+        tele_p.get("rotation_scale", 1.2)
+    )
 
     # 2. Initialize Robot Controller
     print("\n🤖 Initializing Piper robot controller...")
@@ -45,11 +51,8 @@ def bootstrap_robot_system(
 
     # 3. Start Threads
     active_threads = []
-    
     print("\n📊 Starting joint state thread...")
-    js_thread = threading.Thread(
-        target=joint_state_thread, args=(data_manager, robot_controller), daemon=True
-    )
+    js_thread = threading.Thread(target=joint_state_thread, args=(data_manager, robot_controller), daemon=True)
     js_thread.start()
     active_threads.append(js_thread)
 
@@ -61,26 +64,25 @@ def bootstrap_robot_system(
         
         ik_solver = PinkIKSolver(
             urdf_path=URDF_PATH, end_effector_frame=GRIPPER_FRAME_NAME,
-            solver_name=SOLVER_NAME, position_cost=POSITION_COST,
-            orientation_cost=ORIENTATION_COST, frame_task_gain=FRAME_TASK_GAIN,
-            lm_damping=LM_DAMPING, damping_cost=DAMPING_COST,
-            solver_damping_value=SOLVER_DAMPING_VALUE,
+            solver_name=SOLVER_NAME, 
+            position_cost=ik_p.get("position_cost", 1.0),
+            orientation_cost=ik_p.get("orientation_cost", 0.75), 
+            frame_task_gain=ik_p.get("frame_task_gain", 0.4),
+            lm_damping=ik_p.get("lm_damping", 0.01), 
+            damping_cost=ik_p.get("damping_cost", 0.25),
+            solver_damping_value=ik_p.get("solver_damping_value", 1e-4),
             integration_time_step=1 / IK_SOLVER_RATE,
             initial_configuration=init_angles,
-            posture_cost_vector=np.array(POSTURE_COST_VECTOR),
+            posture_cost_vector=np.array(ik_p.get("posture_cost_vector", [0.0, 0.0, 0.0, 0.05, 0.0, 0.0])),
         )
         print("\n🧮 Starting IK solver thread...")
-        ik_thread = threading.Thread(
-            target=ik_solver_thread, args=(data_manager, ik_solver), daemon=True
-        )
+        ik_thread = threading.Thread(target=ik_solver_thread, args=(data_manager, ik_solver), daemon=True)
         ik_thread.start()
         active_threads.append(ik_thread)
 
     if start_camera:
         print("\n📷 Starting camera thread...")
-        cam_thread = threading.Thread(
-            target=camera_thread, args=(data_manager,), daemon=True
-        )
+        cam_thread = threading.Thread(target=camera_thread, args=(data_manager,), daemon=True)
         cam_thread.start()
         active_threads.append(cam_thread)
 
