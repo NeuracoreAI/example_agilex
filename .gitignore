@@ -14,3 +14,4 @@ env.bak/
 logs/
 
 *.zip
+tuned_teleop_configs.yaml

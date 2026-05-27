@@ -1,24 +1,77 @@
+# =================================================================================
+# PIPER TELEOPERATION & IK CONFIGURATION
+# =================================================================================
+
 ik_parameters:
+  # POSITION & ORIENTATION
+  # These weights dictate how the robot prioritizes reaching the exact XYZ coordinate 
+  # versus matching the exact wrist rotation when it can't perfectly do both.
+  # Tune: Increase position_cost if the robot struggles to reach far XYZ coordinates.
+  #       Increase orientation_cost if you need strict tool alignment (e.g., pouring).
   position_cost: 1.0
   orientation_cost: 0.75
+  
+  # KINEMATIC AGGRESSIVENESS
+  # How quickly the robot tries to close the distance between its current pose 
+  # and the VR controller's target pose.
+  # Tune: Decrease to 0.1-0.2 for smoother, delayed, robotic movement. 
+  #       Increase to 0.7-0.9 for highly aggressive, snappy tracking.
   frame_task_gain: 0.4
+  
+  # SINGULARITY & MATHEMATICAL DAMPING
+  # These parameters prevent the robot from violently flailing or crashing when 
+  # it reaches the absolute edge of its workspace (singularities).
+  # Tune: Increase lm_damping (e.g., 0.05) if the robot twitches at full extension.
+  #       solver_damping_value is strict math regularization; usually leave as 0.0001.
   lm_damping: 0.01
   damping_cost: 0.25
   solver_damping_value: 0.0001
+  
+  # POSTURE PREFERENCE
+  # A 6-value array (one for each joint). Non-zero values act like a rubber band, 
+  # gently pulling that specific joint back toward its default "neutral" angle.
+  # Tune: We put 0.05 on Joint 4 (the elbow) to stop the arm from bending backward 
+  #       into awkward, unnatural shapes during complex rotations.
   posture_cost_vector:
   - 0.0
   - 0.0
   - 0.0
-  - 0.05
+  - 0.05  # Gentle pull on the elbow
   - 0.0
   - 0.0
+
 filter_parameters:
+  # 1-EURO FILTER (VR Controller Smoothing)
+  # VR controllers inherently have micro-jitters (from your hands or sensor noise).
+  
+  # controller_min_cutoff: Handles slow movements and holding completely still.
+  # Tune: Lower it (e.g., 0.1) to completely eliminate hand shaking (but adds lag).
+  #       Raise it (e.g., 1.5) if you want zero lag, but the robot will vibrate more.
   controller_min_cutoff: 0.8
+  
+  # controller_beta: Handles fast, sweeping movements.
+  # Tune: Increase (e.g., 0.5) to make the robot instantly snap to fast hand swipes.
+  #       Decrease (e.g., 0.01) if fast movements feel too jerky.
   controller_beta: 0.05
+  
+  # controller_d_cutoff: Internal speed calculation filter. Best left at 0.9-1.0.
   controller_d_cutoff: 0.9
+
 teleop_parameters:
+  # STANDARD MOVEMENT SCALING
+  # Maps how physical VR movement translates to actual robot movement.
+  # Tune: A translation_scale of 1.5 means moving your hand 10cm moves the robot 15cm.
+  #       A rotation_scale of 1.2 means twisting your wrist 90° twists the robot 108°.
   translation_scale: 1.5
   rotation_scale: 1.2
+  
+  # PRECISION MOVEMENT SCALING (SLOW MODE)
+  # The alternate scaling profile used when you toggle the left joystick.
+  # Tune: Keep these below 1.0 for delicate tasks like thread insertion or grasping tiny objects.
   slow_translation_scale: 0.6
   slow_rotation_scale: 0.6
+  
+  # MANUAL WRIST OVERRIDE
+  # How many degrees the 6th joint (wrist roll) rotates when you press the X or Y buttons.
+  # Tune: Adjust based on how fast you need to manually spin the gripper.
   wrist_joint_button_step_degrees: 5.0
