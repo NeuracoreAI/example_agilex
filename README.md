@@ -99,7 +99,8 @@ The teleoperation stack operates asynchronously to ensure smooth hardware contro
 Use this script to safely test the robot and dial in your movement preferences before collecting data. It launches a web UI where you can adjust IK weights, motion smoothing (1-Euro filter), and scaling factors on the fly.
 
 ```bash
-python examples/1_tune_teleop_params.py [--ip-address <quest-ip>] [--ik-config ik_conf/default.yaml]
+cd examples
+python 1_tune_teleop_params.py [--ip-address <quest-ip>] [--ik-config ik_conf/default.yaml]
 
 ```
 
@@ -116,7 +117,8 @@ python examples/1_tune_teleop_params.py [--ip-address <quest-ip>] [--ik-config i
 Once your parameters are tuned, use this script to record demonstrations directly to the Neuracore cloud.
 
 ```bash
-python examples/2_collect_teleop_data_with_neuracore.py [--dataset-name <name>] [--ik-config ik_conf/default.yaml]
+cd examples
+python 2_collect_teleop_data_with_neuracore.py [--dataset-name <name>] [--ik-config ik_conf/default.yaml]
 
 ```
 
@@ -137,7 +139,8 @@ This script downloads a dataset from Neuracore and forces the physical robot to 
 > 
 
 ```bash
-python examples/3_replay_neuracore_episodes.py --dataset-name <name> [--episode-index <index>] [--frequency 20]
+cd examples
+python 3_replay_neuracore_episodes.py --dataset-name <name> [--episode-index <index>] [--frequency 20]
 
 ```
 
@@ -152,13 +155,14 @@ Deploy a trained AI model to the robot. This script opens a Viser 3D dashboard w
 
 ```bash
 # Load from a local model file
-python examples/4_rollout_neuracore_policy.py --model-path <path-to-model.nc.zip>
+cd examples
+python 4_rollout_neuracore_policy.py --model-path <path-to-model.nc.zip>
 
 # Load from a cloud training run
-python examples/4_rollout_neuracore_policy.py --train-run-name <run-name>
+python 4_rollout_neuracore_policy.py --train-run-name <run-name>
 
 # Connect to an active remote inference server
-python examples/4_rollout_neuracore_policy.py --remote-endpoint-name <endpoint-name>
+python 4_rollout_neuracore_policy.py --remote-endpoint-name <endpoint-name>
 
 ```
 
@@ -169,7 +173,8 @@ python examples/4_rollout_neuracore_policy.py --remote-endpoint-name <endpoint-n
 A lightweight, terminal-only version of the rollout script. It strips away the 3D GUI and Meta Quest tracking, making it perfect for rapid, automated deployments in constrained compute environments.
 
 ```bash
-python examples/5_rollout_neuracore_policy_minimal.py --train-run-name <run-name>
+cd examples
+python 5_rollout_neuracore_policy_minimal.py --train-run-name <run-name>
 
 ```
 
@@ -180,7 +185,8 @@ python examples/5_rollout_neuracore_policy_minimal.py --train-run-name <run-name
 The safest way to validate a model. This script pulls camera and joint data from a recorded dataset, feeds it to your AI policy, and renders the AI's predictions in a 3D web simulation. No physical robot is required.
 
 ```bash
-python examples/6_visualize_policy_from_dataset.py --dataset-name <dataset-name> --train-run-name <run-name>
+cd examples
+python 6_visualize_policy_from_dataset.py --dataset-name <dataset-name> --train-run-name <run-name>
 
 ```
 
