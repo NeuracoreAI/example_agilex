@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Minimal Piper Robot Policy Rollout (Headless).
+"""Minimal Piper Robot Policy Rollout (Headless).
 
 This script serves as a lightweight, terminal-only entry point for executing
 AI policies trained via Neuracore on the AgileX Piper robotic arm. It removes
@@ -24,6 +23,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from typing import Any
 
 import neuracore as nc
 
@@ -59,19 +59,14 @@ from neuracore_types import DataType
 # Helper Functions
 # ---------------------------------------------------------------------------
 def execute_horizon(
-    data_manager,
-    policy_state,
-    robot_controller,
-    frequency,
-    input_embodiment,
-    output_grippers,
-):
-    """
-    Minimal terminal-only execution loop for the prediction horizon.
-
-    Locks the predicted horizon and streams the joint/gripper targets to the
-    robot at the specified frequency until the horizon is exhausted.
-    """
+    data_manager: Any,
+    policy_state: PolicyState,
+    robot_controller: Any,
+    frequency: int,
+    input_embodiment: dict,
+    output_grippers: list[str] | None,
+) -> None:
+    """Minimal terminal-only execution loop for the prediction horizon."""
     policy_state.start_policy_execution()
     data_manager.set_robot_activity_state(RobotActivityState.POLICY_CONTROLLED)
 
@@ -205,14 +200,14 @@ if __name__ == "__main__":
 
     print_policy_embodiments(input_emb, output_emb)
 
-    output_gripper_names = None
+    output_gripper_names: list[str] | None = None
     if output_emb and DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS in output_emb:
         output_gripper_names = embodiment_names_ordered(
             output_emb[DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS]
         )
 
     # 4. Bootstrap Core System (No Quest, No IK needed for minimal playback)
-    data_manager, robot_controller, _, active_threads = bootstrap_robot_system(
+    data_manager, robot_controller, ik_solver, active_threads = bootstrap_robot_system(
         config, start_ik=False, start_camera=True
     )
 

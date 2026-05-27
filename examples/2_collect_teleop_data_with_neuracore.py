@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Piper Robot Teleoperation and Neuracore Data Collection.
+"""Piper Robot Teleoperation and Neuracore Data Collection.
 
 This script facilitates real-time teleoperation of the AgileX Piper robotic arm
 using Meta Quest controllers, while simultaneously streaming perfectly synchronized
@@ -61,9 +60,7 @@ from piper_controller import PiperController
 def _step_wrist_joint(
     data_manager: DataManager, robot_controller: PiperController, delta_degrees: float
 ) -> None:
-    """
-    Applies a relative step adjustment to the robot's wrist joint target angle.
-    """
+    """Apply a relative step adjustment to the robot's wrist joint target angle."""
     data_manager.set_teleop_state(False, None, None)
     robot_controller.set_control_mode(PiperController.ControlMode.JOINT_SPACE)
 
@@ -83,9 +80,7 @@ def _step_wrist_joint(
 
 
 def toggle_slow_scaling(data_manager: DataManager, tele_p: dict) -> None:
-    """
-    Toggles the teleoperation sensitivity between standard and slow (precision) scaling.
-    """
+    """Toggle the teleoperation sensitivity between standard and slow (precision) scaling."""
     enabled = data_manager.toggle_slow_scaling_mode_enabled()
     if enabled:
         data_manager.set_teleop_scaling(

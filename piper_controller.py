@@ -238,6 +238,7 @@ class PiperController:
     #             print(f"Control mode changed: {old_mode.value} -> {mode.value}")
 
     def set_control_mode(self, mode: "PiperController.ControlMode") -> None:
+        """Set the current robot control mode and propagate the configuration to the hardware."""
         with self.state_lock:
             old_mode = self._control_mode
             self._control_mode = mode

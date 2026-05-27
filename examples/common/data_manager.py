@@ -14,14 +14,6 @@ import numpy as np
 
 from .configs import GRIPPER_NAME, JOINT_NAMES
 from .one_euro_filter import OneEuroFilterTransform
-from .states import (
-    CameraState,
-    ControllerState,
-    IKState,
-    RobotActivityState,
-    RobotState,
-    TeleopState,
-)
 
 
 class RobotActivityState(Enum):
@@ -208,6 +200,7 @@ class DataManager:
     # ============================================================================
 
     def get_controller_data(self) -> tuple[np.ndarray | None, float, float]:
+        """Return the latest controller pose, grip, and trigger values."""
         with self._controller_state._lock:
             return (
                 (
@@ -222,6 +215,7 @@ class DataManager:
     def set_controller_data(
         self, transform: np.ndarray | None, grip: float, trigger: float
     ) -> None:
+        """Update the controller transform and button values."""
         if transform is not None and transform.shape != (4, 4):
             raise ValueError("Transform must be a 4x4 matrix")
         if grip < 0.0 or grip > 1.0:
@@ -263,12 +257,14 @@ class DataManager:
     def set_controller_filter_params(
         self, min_cutoff: float, beta: float, d_cutoff: float
     ) -> None:
+        """Set the filter parameters used to smooth controller motion."""
         with self._controller_state._lock:
             self._controller_state.min_cutoff = min_cutoff
             self._controller_state.beta = beta
             self._controller_state.d_cutoff = d_cutoff
 
     def get_controller_filter_params(self) -> tuple[float, float, float]:
+        """Return the current controller filter parameters."""
         with self._controller_state._lock:
             return (
                 self._controller_state.min_cutoff,
@@ -286,6 +282,7 @@ class DataManager:
         controller_initial: np.ndarray | None,
         robot_initial: np.ndarray | None,
     ) -> None:
+        """Enable or disable teleoperation and store initial transforms."""
         with self._teleop_state._lock:
             self._teleop_state.active = active
             self._teleop_state.controller_initial_transform = (
@@ -298,6 +295,7 @@ class DataManager:
     def set_teleop_scaling(
         self, translation_scale: float, rotation_scale: float
     ) -> None:
+        """Update the teleoperation scaling factors."""
         if translation_scale <= 0.0 or rotation_scale <= 0.0:
             return
         with self._teleop_state._lock:
@@ -305,6 +303,7 @@ class DataManager:
             self._teleop_state.rotation_scale = rotation_scale
 
     def get_teleop_scaling(self) -> tuple[float, float]:
+        """Return the current teleoperation scaling settings."""
         with self._teleop_state._lock:
             return (
                 self._teleop_state.translation_scale,
@@ -312,14 +311,17 @@ class DataManager:
             )
 
     def get_teleop_active(self) -> bool:
+        """Return whether teleoperation is currently active."""
         with self._teleop_state._lock:
             return self._teleop_state.active
 
     def set_slow_scaling_mode_enabled(self, enabled: bool) -> None:
+        """Enable or disable slow scaling mode."""
         with self._teleop_state._lock:
             self._teleop_state.slow_scaling_mode_enabled = enabled
 
     def toggle_slow_scaling_mode_enabled(self) -> bool:
+        """Toggle slow scaling mode and return the new state."""
         with self._teleop_state._lock:
             self._teleop_state.slow_scaling_mode_enabled = (
                 not self._teleop_state.slow_scaling_mode_enabled
@@ -327,12 +329,14 @@ class DataManager:
             return self._teleop_state.slow_scaling_mode_enabled
 
     def get_slow_scaling_mode_enabled(self) -> bool:
+        """Return whether slow scaling mode is enabled."""
         with self._teleop_state._lock:
             return self._teleop_state.slow_scaling_mode_enabled
 
     def get_initial_robot_controller_transforms(
         self,
     ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Return the initial controller and robot transforms for teleop."""
         with self._teleop_state._lock:
             return (
                 (
@@ -352,14 +356,17 @@ class DataManager:
     # ============================================================================
 
     def get_robot_activity_state(self) -> RobotActivityState:
+        """Return the current robot activity state."""
         with self._robot_state._lock:
             return self._robot_state.activity_state
 
     def set_robot_activity_state(self, state: RobotActivityState) -> None:
+        """Change the robot activity state."""
         with self._robot_state._lock:
             self._robot_state.activity_state = state
 
     def get_current_joint_angles(self) -> np.ndarray | None:
+        """Return the current robot joint angles in degrees."""
         with self._robot_state._lock:
             return (
                 self._robot_state.joint_angles.copy()
@@ -368,6 +375,7 @@ class DataManager:
             )
 
     def set_current_joint_angles(self, angles: np.ndarray) -> None:
+        """Update the current joint angles and log them if callbacks are enabled."""
         with self._robot_state._lock:
             self._robot_state.joint_angles = angles.copy()
         if self._on_change_callback:
@@ -379,6 +387,7 @@ class DataManager:
                 self._queue_callback("log_joint_positions", payload, time.time())
 
     def get_current_joint_torques(self) -> np.ndarray | None:
+        """Return the current robot joint torques."""
         with self._robot_state._lock:
             return (
                 self._robot_state.joint_torques.copy()
@@ -387,6 +396,7 @@ class DataManager:
             )
 
     def set_current_joint_torques(self, torques: np.ndarray) -> None:
+        """Update current robot joint torque readings."""
         with self._robot_state._lock:
             self._robot_state.joint_torques = torques.copy()
         if self._on_change_callback:
@@ -396,6 +406,7 @@ class DataManager:
                 self._queue_callback("log_joint_torques", payload, time.time())
 
     def get_current_end_effector_pose(self) -> np.ndarray | None:
+        """Return the current end effector pose."""
         with self._robot_state._lock:
             return (
                 self._robot_state.end_effector_pose.copy()
@@ -404,14 +415,17 @@ class DataManager:
             )
 
     def set_current_end_effector_pose(self, pose: np.ndarray) -> None:
+        """Update the current end effector pose."""
         with self._robot_state._lock:
             self._robot_state.end_effector_pose = pose.copy()
 
     def get_current_gripper_open_value(self) -> float | None:
+        """Return the current gripper open amount."""
         with self._robot_state._lock:
             return self._robot_state.current_gripper_open_value
 
     def set_current_gripper_open_value(self, value: float) -> None:
+        """Update the current gripper open value."""
         with self._robot_state._lock:
             self._robot_state.current_gripper_open_value = value
         if self._on_change_callback:
@@ -422,10 +436,12 @@ class DataManager:
             )
 
     def get_target_gripper_open_value(self) -> float | None:
+        """Return the target gripper open amount."""
         with self._robot_state._lock:
             return self._robot_state.target_gripper_open_value
 
     def set_target_gripper_open_value(self, value: float) -> None:
+        """Update the target gripper open amount."""
         with self._robot_state._lock:
             self._robot_state.target_gripper_open_value = value
         if self._on_change_callback:
@@ -440,6 +456,7 @@ class DataManager:
     # ============================================================================
 
     def get_target_joint_angles(self) -> np.ndarray | None:
+        """Return the latest target joint angles from the IK solver."""
         with self._ik_state._lock:
             return (
                 self._ik_state.target_joint_angles.copy()
@@ -448,6 +465,7 @@ class DataManager:
             )
 
     def set_target_joint_angles(self, angles: np.ndarray) -> None:
+        """Store the target joint angle command from the IK solver."""
         with self._ik_state._lock:
             self._ik_state.target_joint_angles = angles.copy()
         if self._on_change_callback:
@@ -459,12 +477,14 @@ class DataManager:
                 self._queue_callback("log_joint_target_positions", payload, time.time())
 
     def set_target_pose(self, transform: np.ndarray | None) -> None:
+        """Store the latest IK target end effector pose."""
         with self._ik_state._lock:
             self._ik_state.target_pose = (
                 transform.copy() if transform is not None else None
             )
 
     def get_target_pose(self) -> np.ndarray | None:
+        """Return the latest IK target pose."""
         with self._ik_state._lock:
             return (
                 self._ik_state.target_pose.copy()
@@ -473,18 +493,22 @@ class DataManager:
             )
 
     def set_ik_solve_time_ms(self, time_ms: float) -> None:
+        """Record the latest IK solve duration in milliseconds."""
         with self._ik_state._lock:
             self._ik_state.solve_time_ms = time_ms
 
     def set_ik_success(self, success: bool) -> None:
+        """Record whether the last IK solve succeeded."""
         with self._ik_state._lock:
             self._ik_state.success = success
 
     def get_ik_solve_time_ms(self) -> float:
+        """Return the last IK solve time in milliseconds."""
         with self._ik_state._lock:
             return self._ik_state.solve_time_ms
 
     def get_ik_success(self) -> bool:
+        """Return whether the last IK solve succeeded."""
         with self._ik_state._lock:
             return self._ik_state.success
 

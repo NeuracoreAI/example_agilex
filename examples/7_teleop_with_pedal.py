@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Piper Robot Teleoperation with Meta Quest and Foot Pedals.
+"""Piper Robot Teleoperation with Meta Quest and Foot Pedals.
 
 This script provides a unified control interface for the AgileX Piper robot,
 combining the 6D spatial tracking of a Meta Quest controller with the

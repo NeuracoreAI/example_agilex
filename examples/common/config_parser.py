@@ -1,6 +1,8 @@
+"""Utilities for loading teleoperation and IK configuration from YAML files."""
+
 from pathlib import Path
 
-import yaml
+import yaml  # type: ignore[import]
 
 
 def load_ik_config(config_path: str) -> dict:

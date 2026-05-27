@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Piper Robot Policy Rollout and Visualization.
+"""Piper Robot Policy Rollout and Visualization.
 
 This script serves as a production-ready entry point for executing and visualizing
 AI policies trained via Neuracore on the AgileX Piper robotic arm. It handles:

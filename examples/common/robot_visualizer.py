@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Shared robot visualizer for Piper robot demos.
+
 This module acts as a facade, delegating 3D rendering to RobotVisualizerCore
 and 2D UI elements to RobotVisualizerGUI.
 """
+
+from typing import Any
 
 from .visualizer_core import RobotVisualizerCore
 from .visualizer_gui import RobotVisualizerGUI
@@ -16,9 +19,9 @@ class RobotVisualizer:
         self._core = RobotVisualizerCore(urdf_path)
         self._gui = RobotVisualizerGUI(self._core.server)
 
-    def __getattr__(self, name: str):
-        """
-        Dynamically delegates method calls to the Core or GUI modules.
+    def __getattr__(self, name: str) -> Any:
+        """Dynamically delegates method calls to the Core or GUI modules.
+
         If a top-level script calls `visualizer.add_basic_controls()`,
         this routes it to `_gui.add_basic_controls()`.
         """

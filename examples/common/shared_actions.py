@@ -1,3 +1,5 @@
+"""Common robot action helpers shared by example scripts."""
+
 import subprocess
 from typing import Any
 
@@ -8,8 +10,10 @@ from piper_controller import PiperController
 
 
 def toggle_robot_enabled(
-    data_manager: DataManager, robot_controller: PiperController, visualizer=None
-):
+    data_manager: DataManager,
+    robot_controller: PiperController,
+    visualizer: Any = None,
+) -> None:
     """Safely toggles the robot between ENABLED and DISABLED states."""
     state = data_manager.get_robot_activity_state()
 
@@ -37,7 +41,9 @@ def toggle_robot_enabled(
             print("✗ Failed to enable robot")
 
 
-def move_robot_home(data_manager: DataManager, robot_controller: PiperController):
+def move_robot_home(
+    data_manager: DataManager, robot_controller: PiperController
+) -> None:
     """Safely commands the robot to return to its home position."""
     state = data_manager.get_robot_activity_state()
 

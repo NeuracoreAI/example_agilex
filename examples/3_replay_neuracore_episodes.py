@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Piper Robot Dataset Replay and Validation.
+"""Piper Robot Dataset Replay and Validation.
 
 This script acts as a production-grade utility for replaying recorded Neuracore
 teleoperation datasets directly on the physical AgileX Piper robotic arm.
@@ -61,9 +60,7 @@ from piper_controller import PiperController
 # Helper Functions
 # ---------------------------------------------------------------------------
 def wait_for_home(robot_controller: PiperController, timeout: int = 10) -> bool:
-    """
-    Commands the robot to its home position and blocks until it arrives.
-    """
+    """Command the robot to its home position and block until it arrives."""
     robot_controller.move_to_home()
     for remaining in range(timeout, 0, -1):
         if robot_controller.is_robot_homed():

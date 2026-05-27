@@ -1,3 +1,5 @@
+"""Bootstrap robot subsystems for the AgileX Piper example suite."""
+
 import threading
 from typing import List, Optional, Tuple
 
@@ -25,7 +27,7 @@ def bootstrap_robot_system(
 ) -> Tuple[
     DataManager, PiperController, Optional[PinkIKSolver], List[threading.Thread]
 ]:
-
+    """Create and start the shared robot subsystems used by deployment scripts."""
     # Extract config sections safely
     filt_p = config.get("filter_parameters", {})
     tele_p = config.get("teleop_parameters", {})

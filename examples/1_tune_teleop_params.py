@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Piper Robot Teleoperation Tuning - Real Robot Control.
+"""Piper Robot Teleoperation Tuning - Real Robot Control.
 
 This script allows developers to iteratively tune the robot's teleoperation parameters
 in real-time. It provides a Viser-based web UI where you can adjust Inverse Kinematics (IK)
@@ -17,7 +16,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-import yaml
+import yaml  # type: ignore[import]
 
 # Add parent directory to path to import local modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,7 +30,7 @@ from common.configs import (
     URDF_PATH,
     VISUALIZATION_RATE,
 )
-from common.data_manager import RobotActivityState
+from common.data_manager import DataManager, RobotActivityState
 from common.robot_visualizer import RobotVisualizer
 from common.shared_actions import move_robot_home, toggle_robot_enabled
 from common.system_bootstrap import bootstrap_robot_system
@@ -46,7 +45,10 @@ from piper_controller import PiperController
 
 
 def _step_wrist_joint(
-    data_manager, robot_controller, visualizer, direction: int
+    data_manager: DataManager,
+    robot_controller: PiperController,
+    visualizer: RobotVisualizer,
+    direction: int,
 ) -> None:
     """Apply a relative manual step to the wrist joint using the dynamically tuned step degree."""
     data_manager.set_teleop_state(False, None, None)
@@ -69,7 +71,7 @@ def _step_wrist_joint(
     data_manager.set_target_joint_angles(target_joint_angles)
 
 
-def toggle_slow_scaling(data_manager, visualizer):
+def toggle_slow_scaling(data_manager: DataManager, visualizer: RobotVisualizer) -> None:
     """Toggle the movement scaling mode between standard and dynamically-tuned precision."""
     enabled = data_manager.toggle_slow_scaling_mode_enabled()
     if enabled:
@@ -83,7 +85,7 @@ def toggle_slow_scaling(data_manager, visualizer):
 
 
 def save_config_to_yaml(
-    visualizer, filepath="ik_conf/tuned_teleop_configs.yaml"
+    visualizer: RobotVisualizer, filepath: str = "ik_conf/tuned_teleop_configs.yaml"
 ) -> None:
     """Extracts all current UI slider values and saves them to a YAML file."""
     try:

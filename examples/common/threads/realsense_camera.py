@@ -23,7 +23,7 @@ def camera_thread(data_manager: DataManager) -> None:
     fps_timer = time.time()
     frame_count = 0
     # Store the last 100 frame intervals to check for extreme jitter
-    intervals = deque(maxlen=100)
+    intervals: deque[float] = deque(maxlen=100)
     last_frame_time = time.time()
 
     try:

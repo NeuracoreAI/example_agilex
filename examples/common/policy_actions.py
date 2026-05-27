@@ -132,8 +132,13 @@ def end_policy_play(
 
 
 def continuous_prediction_worker(
-    data_manager, policy, policy_state, visualizer, input_emb, continuous_mode
-):
+    data_manager: DataManager,
+    policy: Any,
+    policy_state: PolicyState,
+    visualizer: Optional[Any],
+    input_emb: dict,
+    continuous_mode: str,
+) -> None:
     """Background thread for continuous receding horizon execution."""
     colors = [
         (1.0, 0.65, 0.0, 0.25),
@@ -204,13 +209,13 @@ def continuous_prediction_worker(
 
 
 def play_policy(
-    data_manager,
-    policy,
-    policy_state,
-    visualizer,
-    input_emb,
-    continuous_mode="pipeline",
-):
+    data_manager: DataManager,
+    policy: Any,
+    policy_state: PolicyState,
+    visualizer: Optional[Any],
+    input_emb: dict,
+    continuous_mode: str = "pipeline",
+) -> None:
     """Toggle for starting/stopping continuous policy mode."""
     if not policy_state.get_continuous_play_active():
         print(f"▶️ Starting {continuous_mode.capitalize()} Mode...")
@@ -237,8 +242,13 @@ def play_policy(
 
 
 def policy_execution_thread(
-    policy, data_manager, policy_state, robot_controller, visualizer, input_emb
-):
+    policy: Any,
+    data_manager: DataManager,
+    policy_state: PolicyState,
+    robot_controller: Any,
+    visualizer: Optional[Any],
+    input_emb: dict,
+) -> None:
     """The thread that continuously reads the locked horizon and sends joint commands."""
     dt_execution = 1.0 / POLICY_EXECUTION_RATE
     last_vis_update = 0.0

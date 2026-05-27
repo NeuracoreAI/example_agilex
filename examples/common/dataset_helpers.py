@@ -1,3 +1,7 @@
+"""Helpers for loading and synchronizing Neuracore datasets."""
+
+from typing import Any
+
 import neuracore as nc
 from neuracore.core.utils.robot_data_spec_utils import (
     merge_cross_embodiment_description,
@@ -11,7 +15,7 @@ def load_and_sync_dataset(
     input_modalities: list[DataType] | None = None,
     output_modalities: list[DataType] | None = None,
     prefetch_videos: bool = False,
-):
+) -> Any:
     """Loads a Neuracore dataset and synchronizes the specified modalities across embodiments."""
     print(f"\n🔍 Getting dataset '{dataset_name}' from Neuracore...")
     dataset = nc.get_dataset(dataset_name)

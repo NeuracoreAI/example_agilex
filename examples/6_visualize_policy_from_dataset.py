@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Offline Policy Visualization and Validation.
+"""Offline Policy Visualization and Validation.
 
 This script acts as a safe, simulated testing ground for your trained AI policies.
 Instead of running on the physical robot, it:
@@ -24,6 +23,16 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import neuracore as nc
+import numpy as np
+import viser
+import yourdfpy
+from PIL import Image
+from viser.extras import ViserUrdf
 
 # ---------------------------------------------------------------------------
 # Suppress Noisy WebRTC/STUN Networking Errors from Viser
@@ -35,40 +44,33 @@ logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 logging.getLogger("aioice").setLevel(logging.CRITICAL)
 logging.getLogger("aiortc").setLevel(logging.CRITICAL)
 
-import neuracore as nc
-import numpy as np
-import viser
-import yourdfpy
-from PIL import Image
-from viser.extras import ViserUrdf
-
-# ---------------------------------------------------------------------------
-# Path Configuration & Local Imports
-# ---------------------------------------------------------------------------
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from common.configs import (
-    CAMERA_NAMES,
-    GRIPPER_NAME,
-    JOINT_NAMES,
-    POLICY_EXECUTION_RATE,
-    URDF_PATH,
-)
-from common.dataset_helpers import load_and_sync_dataset
-from common.policy_helpers import (
-    DEFAULT_ROBOT_NAME,
-    convert_predictions_to_horizon,
-    embodiment_names_ordered,
-    get_policy_embodiments,
-    gripper_open_at_index,
-    horizon_length,
-    log_sync_step_for_policy,
-    print_policy_embodiments,
-    urdf_cfg_from_horizon,
-)
-from neuracore_types import DataType
-
 if __name__ == "__main__":
+    # ---------------------------------------------------------------------------
+    # Path Configuration & Local Imports
+    # ---------------------------------------------------------------------------
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from common.configs import (
+        CAMERA_NAMES,
+        GRIPPER_NAME,
+        JOINT_NAMES,
+        POLICY_EXECUTION_RATE,
+        URDF_PATH,
+    )
+    from common.dataset_helpers import load_and_sync_dataset
+    from common.policy_helpers import (
+        DEFAULT_ROBOT_NAME,
+        convert_predictions_to_horizon,
+        embodiment_names_ordered,
+        get_policy_embodiments,
+        gripper_open_at_index,
+        horizon_length,
+        log_sync_step_for_policy,
+        print_policy_embodiments,
+        urdf_cfg_from_horizon,
+    )
+    from neuracore_types import DataType
+
     # ---------------------------------------------------------
     # 1. Argument Parsing
     # ---------------------------------------------------------
@@ -203,7 +205,12 @@ if __name__ == "__main__":
     )
     urdf_vis.update_cfg(np.zeros(len(JOINT_NAMES)))
 
-    state = {"horizon": None, "action_idx": 0, "playing": False, "rgb_handle": None}
+    state: dict[str, Any] = {
+        "horizon": None,
+        "action_idx": 0,
+        "playing": False,
+        "rgb_handle": None,
+    }
 
     def select_random_state() -> None:
         """Pulls a random observation from the dataset and queries the AI policy."""
