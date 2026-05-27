@@ -7,14 +7,13 @@ AI policies trained via Neuracore on the AgileX Piper robotic arm. It handles:
     1. Establishing a connection to the Neuracore API and authenticating the hardware.
     2. Dynamically loading a trained policy via a local model, a training run, or a remote endpoint.
     3. Extracting and validating the expected input/output embodiment descriptions.
-    4. Bootstrapping the core robot control and background state-management threads.
+    4. Bootstrapping the core robot control and background state-management threads using a YAML config.
     5. Launching a Viser-based web UI for real-time 3D visualization and manual policy control.
     6. Managing background threads dedicated to continuous policy prediction and execution.
 
 Usage Examples:
-    python 4_rollout_neuracore_policy.py --model-path ./model.nc.zip
-    python 4_rollout_neuracore_policy.py --train-run-name my_awesome_training_run
-    python 4_rollout_neuracore_policy.py --remote-endpoint-name live_cloud_endpoint
+    python 4_rollout_neuracore_policy.py --model-path ./model.nc.zip --ik-config ik_conf/default.yaml
+    python 4_rollout_neuracore_policy.py --remote-endpoint-name test_deploy
 """
 
 import argparse
@@ -42,6 +41,7 @@ from common.policy_helpers import (
     get_policy_embodiments, 
     print_policy_embodiments
 )
+from common.config_parser import load_ik_config
 from common.system_bootstrap import bootstrap_robot_system
 from common.shared_actions import toggle_robot_enabled, move_robot_home
 from common.robot_visualizer import RobotVisualizer
@@ -71,6 +71,12 @@ if __name__ == "__main__":
         default="AgileX PiPER",
         help="The registered hardware name in the Neuracore ecosystem."
     )
+    parser.add_argument(
+        "--ik-config", 
+        type=str, 
+        default="ik_conf/default.yaml", 
+        help="Path to IK/teleop YAML configuration file."
+    )
     
     # Require exactly one method of loading the policy
     policy_group = parser.add_mutually_exclusive_group(required=True)
@@ -83,8 +89,11 @@ if __name__ == "__main__":
     print("=" * 60 + "\nPIPER ROBOT TEST WITH NEURACORE POLICY\n" + "=" * 60)
 
     # ---------------------------------------------------------
-    # 2. Neuracore Initialization & Authentication
+    # 2. Configuration & Neuracore Initialization
     # ---------------------------------------------------------
+    # Load the YAML configuration dictionary
+    config = load_ik_config(args.ik_config)
+
     nc.login()
     nc.connect_robot(robot_name=args.robot_name, urdf_path=str(URDF_PATH), overwrite=False)
 
@@ -118,8 +127,23 @@ if __name__ == "__main__":
             robot_name=args.robot_name,
         )
 
-    # Dynamically extract and log what sensor streams the model expects to see
-    input_emb, output_emb = get_policy_embodiments(policy)
+    # Dynamically extract what sensor streams the model expects to see.
+    # Remote endpoints (policy_remote_server) do not expose these attributes, 
+    # so we catch the AttributeError and fall back to the default Piper embodiment.
+    try:
+        input_emb, output_emb = get_policy_embodiments(policy)
+    except AttributeError:
+        print("\n⚠️  Could not dynamically extract embodiments from remote endpoint. Using default Piper configuration...")
+        input_emb = {
+            DataType.JOINT_POSITIONS: {i: f"joint{i+1}" for i in range(6)},
+            DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: {0: GRIPPER_NAME},
+            DataType.RGB_IMAGES: {0: CAMERA_NAMES[0]},
+        }
+        output_emb = {
+            DataType.JOINT_TARGET_POSITIONS: {i: f"joint{i+1}" for i in range(6)},
+            DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: {0: GRIPPER_NAME},
+        }
+
     print_policy_embodiments(input_emb, output_emb)
 
     # Initialize shared policy state container
@@ -130,9 +154,9 @@ if __name__ == "__main__":
     # 4. Hardware & Subsystem Bootstrapping
     # ---------------------------------------------------------
     # Instantiates the shared DataManager, CAN hardware interface, IK solver, 
-    # and base telemetry threads (joint states, camera streams).
+    # and base telemetry threads using the parsed YAML config parameters.
     data_manager, robot_controller, ik_solver, active_threads = bootstrap_robot_system(
-        start_ik=True, start_camera=True
+        config, start_ik=True, start_camera=True
     )
 
     # ---------------------------------------------------------
@@ -141,7 +165,7 @@ if __name__ == "__main__":
     print("\n🖥️  Starting Viser visualization server...")
     visualizer = RobotVisualizer(str(URDF_PATH))
     
-    # Inject UI components
+    # Inject UI components using fixed AI policy rates
     visualizer.add_policy_controls(
         PREDICTION_HORIZON_EXECUTION_RATIO, 
         POLICY_EXECUTION_RATE, 
