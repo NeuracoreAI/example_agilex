@@ -91,7 +91,9 @@ class PiperController:
 
         # Gripper range in degrees (for internal SDK communication)
         self.GRIPPER_DEGREES_MIN = -10.00
-        self.GRIPPER_DEGREES_MAX = 80.00 # cube stacking halid is 80, lemon picking pruthvi is 80
+        self.GRIPPER_DEGREES_MAX = (
+            80.00  # cube stacking halid is 80, lemon picking pruthvi is 80
+        )
         self.GRIPPER_DEGREES_RANGE = self.GRIPPER_DEGREES_MAX - self.GRIPPER_DEGREES_MIN
 
         # Home gripper value in degrees
@@ -234,23 +236,22 @@ class PiperController:
     #         self._control_mode = mode
     #         if self.debug_mode:
     #             print(f"Control mode changed: {old_mode.value} -> {mode.value}")
-    
 
     def set_control_mode(self, mode: "PiperController.ControlMode") -> None:
         with self.state_lock:
             old_mode = self._control_mode
             self._control_mode = mode
-            
+
             # Send the mode configuration ONCE here, not in the 100Hz loop
             if hasattr(self, "piper") and self.piper.get_connect_status():
                 if mode == PiperController.ControlMode.JOINT_SPACE:
                     self.piper.MotionCtrl_2(0x01, 0x01, 100, 0x00)
                 elif mode == PiperController.ControlMode.END_EFFECTOR:
                     self.piper.MotionCtrl_2(0x01, 0x00, 100, 0x00)
-                    
+
             if self.debug_mode:
                 print(f"Control mode changed: {old_mode.value} -> {mode.value}")
-                
+
     @staticmethod
     def _pose_6d_to_4x4(pose_6d: np.ndarray) -> np.ndarray:
         """Convert 6D pose [x, y, z, rx, ry, rz] to 4x4 transformation matrix.
@@ -507,7 +508,9 @@ class PiperController:
                     if now - last_reenable_time >= reenable_interval:
                         if not self.piper.EnablePiper():
                             if self.debug_mode:
-                                print("Control loop: EnablePiper re-enable returned False")
+                                print(
+                                    "Control loop: EnablePiper re-enable returned False"
+                                )
                         last_reenable_time = now
 
                     # Get current control mode

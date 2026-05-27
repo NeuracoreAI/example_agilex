@@ -3,7 +3,6 @@
 import time
 import traceback
 from collections import deque
-import cv2
 
 import numpy as np
 import pyrealsense2 as rs
@@ -63,14 +62,16 @@ def camera_thread(data_manager: DataManager) -> None:
             # DIAGNOSTICS: Check for dropped frames via hardware ID
             # ---------------------------------------------------------
             current_frame_number = color_frame.get_frame_number()
-            
+
             if last_frame_number is not None:
                 # If frame numbers are not sequential, we missed something in software
                 drops = (current_frame_number - last_frame_number) - 1
                 if drops > 0:
                     total_dropped_frames += drops
-                    print(f"⚠️  DROPPED {drops} FRAME(S)! (Hardware ID: {current_frame_number}) | Total dropped: {total_dropped_frames}")
-            
+                    print(
+                        f"⚠️  DROPPED {drops} FRAME(S)! (Hardware ID: {current_frame_number}) | Total dropped: {total_dropped_frames}"
+                    )
+
             last_frame_number = current_frame_number
 
             # ---------------------------------------------------------
@@ -79,15 +80,17 @@ def camera_thread(data_manager: DataManager) -> None:
             frame_count += 1
             if current_time - fps_timer >= 5.0:  # Report every 5 seconds
                 effective_fps = frame_count / (current_time - fps_timer)
-                
+
                 # Calculate jitter (max variance between frame arrivals)
                 max_interval = max(intervals) * 1000  # in ms
                 min_interval = min(intervals) * 1000  # in ms
-                
-                print(f"📊 Camera Health: {effective_fps:.1f} FPS | "
-                      f"Jitter: {min_interval:.1f}ms - {max_interval:.1f}ms | "
-                      f"Total Drops: {total_dropped_frames}")
-                
+
+                print(
+                    f"📊 Camera Health: {effective_fps:.1f} FPS | "
+                    f"Jitter: {min_interval:.1f}ms - {max_interval:.1f}ms | "
+                    f"Total Drops: {total_dropped_frames}"
+                )
+
                 # Reset counters for the next 5-second window
                 fps_timer = current_time
                 frame_count = 0
@@ -103,7 +106,7 @@ def camera_thread(data_manager: DataManager) -> None:
             color_image = np.rot90(color_image, k=3)  # Rotate 270 degrees
             data_manager.set_rgb_image(color_image, camera_name)
 
-            # Notice: The time.sleep() has been completely removed. 
+            # Notice: The time.sleep() has been completely removed.
             # wait_for_frames() manages the loop pace perfectly.
 
     except Exception as e:

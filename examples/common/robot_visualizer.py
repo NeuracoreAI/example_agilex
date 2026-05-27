@@ -7,6 +7,7 @@ and 2D UI elements to RobotVisualizerGUI.
 from .visualizer_core import RobotVisualizerCore
 from .visualizer_gui import RobotVisualizerGUI
 
+
 class RobotVisualizer:
     """Shared visualizer facade for robot demos."""
 
@@ -18,12 +19,12 @@ class RobotVisualizer:
     def __getattr__(self, name: str):
         """
         Dynamically delegates method calls to the Core or GUI modules.
-        If a top-level script calls `visualizer.add_basic_controls()`, 
+        If a top-level script calls `visualizer.add_basic_controls()`,
         this routes it to `_gui.add_basic_controls()`.
         """
         if hasattr(self._core, name):
             return getattr(self._core, name)
         if hasattr(self._gui, name):
             return getattr(self._gui, name)
-        
+
         raise AttributeError(f"'RobotVisualizer' object has no attribute '{name}'")

@@ -20,7 +20,9 @@ class PolicyState:
         # Prediction horizon stored as dict[str, list[float]] where keys are joint/gripper names
         self._prediction_horizon: dict[str, list[float]] = {}
         self._prediction_horizon_lock = threading.Lock()
-        self._execution_ratio: float = 0.5  # Default to executing 50% of the predicted horizon, TODO: we need to set it in
+        self._execution_ratio: float = (
+            0.5  # Default to executing 50% of the predicted horizon, TODO: we need to set it in
+        )
 
         self._policy_rgb_image_input: np.ndarray | None = None
         self._policy_rgb_image_input_lock = threading.Lock()

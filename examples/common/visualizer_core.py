@@ -4,9 +4,10 @@ import yourdfpy
 from scipy.spatial.transform import Rotation
 from viser.extras import ViserUrdf
 
+
 class RobotVisualizerCore:
     """Handles the 3D rendering of the robot, ghost robot, and target frames."""
-    
+
     def __init__(self, urdf_path: str) -> None:
         self.server = viser.ViserServer()
         self.server.scene.add_grid("/ground", width=2, height=2, cell_size=0.1)
@@ -49,7 +50,9 @@ class RobotVisualizerCore:
         if rgb_image is None:
             return
         if self.rgb_image_handle is None:
-            self.add_rgb_image_placeholder(height=rgb_image.shape[0], width=rgb_image.shape[1])
+            self.add_rgb_image_placeholder(
+                height=rgb_image.shape[0], width=rgb_image.shape[1]
+            )
         self.rgb_image_handle.image = rgb_image
 
     def update_robot_pose(self, joint_config: np.ndarray) -> None:

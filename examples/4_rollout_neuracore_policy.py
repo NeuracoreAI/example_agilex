@@ -28,28 +28,33 @@ import neuracore as nc
 # Dynamically append the parent directory to sys.path to resolve local 'common' modules.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from common.configs import (
-    CAMERA_NAMES, GRIPPER_NAME, URDF_PATH,
-    PREDICTION_HORIZON_EXECUTION_RATIO, POLICY_EXECUTION_RATE, ROBOT_RATE,
-)
-from neuracore_types import DataType, EmbodimentDescription
-
-from common.data_manager import RobotActivityState
-from common.policy_state import PolicyState
-from common.policy_helpers import (
-    embodiment_names_ordered, 
-    get_policy_embodiments, 
-    print_policy_embodiments
-)
 from common.config_parser import load_ik_config
-from common.system_bootstrap import bootstrap_robot_system
-from common.shared_actions import toggle_robot_enabled, move_robot_home
-from common.robot_visualizer import RobotVisualizer
+from common.configs import (
+    CAMERA_NAMES,
+    GRIPPER_NAME,
+    POLICY_EXECUTION_RATE,
+    PREDICTION_HORIZON_EXECUTION_RATIO,
+    ROBOT_RATE,
+    URDF_PATH,
+)
+from common.data_manager import RobotActivityState
 
 # Extracted policy execution and lifecycle management actions
 from common.policy_actions import (
-    run_policy, start_policy_execution, play_policy, policy_execution_thread
+    play_policy,
+    policy_execution_thread,
+    run_policy,
+    start_policy_execution,
 )
+from common.policy_helpers import (
+    get_policy_embodiments,
+    print_policy_embodiments,
+)
+from common.policy_state import PolicyState
+from common.robot_visualizer import RobotVisualizer
+from common.shared_actions import move_robot_home, toggle_robot_enabled
+from common.system_bootstrap import bootstrap_robot_system
+from neuracore_types import DataType
 
 if __name__ == "__main__":
     # ---------------------------------------------------------
@@ -58,32 +63,41 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Execute and visualize Neuracore policies on the Piper Robot."
     )
-    
+
     parser.add_argument(
-        "--continuous-mode", 
-        choices=["pipeline", "sequential"], 
+        "--continuous-mode",
+        choices=["pipeline", "sequential"],
         default="sequential",
-        help="Execution strategy for the receding horizon loop."
+        help="Execution strategy for the receding horizon loop.",
     )
     parser.add_argument(
-        "--robot-name", 
-        type=str, 
+        "--robot-name",
+        type=str,
         default="AgileX PiPER",
-        help="The registered hardware name in the Neuracore ecosystem."
+        help="The registered hardware name in the Neuracore ecosystem.",
     )
     parser.add_argument(
-        "--ik-config", 
-        type=str, 
-        default="ik_conf/default.yaml", 
-        help="Path to IK/teleop YAML configuration file."
+        "--ik-config",
+        type=str,
+        default="ik_conf/default.yaml",
+        help="Path to IK/teleop YAML configuration file.",
     )
-    
+
     # Require exactly one method of loading the policy
     policy_group = parser.add_mutually_exclusive_group(required=True)
-    policy_group.add_argument("--train-run-name", type=str, default=None, help="Cloud training run name.")
-    policy_group.add_argument("--model-path", type=str, default=None, help="Path to local .nc.zip model file.")
-    policy_group.add_argument("--remote-endpoint-name", type=str, default=None, help="Active remote inference endpoint.")
-    
+    policy_group.add_argument(
+        "--train-run-name", type=str, default=None, help="Cloud training run name."
+    )
+    policy_group.add_argument(
+        "--model-path", type=str, default=None, help="Path to local .nc.zip model file."
+    )
+    policy_group.add_argument(
+        "--remote-endpoint-name",
+        type=str,
+        default=None,
+        help="Active remote inference endpoint.",
+    )
+
     args = parser.parse_args()
 
     print("=" * 60 + "\nPIPER ROBOT TEST WITH NEURACORE POLICY\n" + "=" * 60)
@@ -95,13 +109,17 @@ if __name__ == "__main__":
     config = load_ik_config(args.ik_config)
 
     nc.login()
-    nc.connect_robot(robot_name=args.robot_name, urdf_path=str(URDF_PATH), overwrite=False)
+    nc.connect_robot(
+        robot_name=args.robot_name, urdf_path=str(URDF_PATH), overwrite=False
+    )
 
     # ---------------------------------------------------------
     # 3. Policy Loading & Embodiment Resolution
     # ---------------------------------------------------------
     if args.remote_endpoint_name is not None:
-        print(f"\n🤖 Connecting to remote policy endpoint: {args.remote_endpoint_name}...")
+        print(
+            f"\n🤖 Connecting to remote policy endpoint: {args.remote_endpoint_name}..."
+        )
         try:
             policy = nc.policy_remote_server(args.remote_endpoint_name)
         except nc.EndpointError:
@@ -110,7 +128,7 @@ if __name__ == "__main__":
                 "Please start it from the Neuracore dashboard."
             )
             sys.exit(1)
-            
+
     elif args.train_run_name is not None:
         print(f"\n🤖 Loading policy from cloud training run: {args.train_run_name}...")
         policy = nc.policy(
@@ -118,7 +136,7 @@ if __name__ == "__main__":
             device="cuda",
             robot_name=args.robot_name,
         )
-        
+
     else:
         print(f"\n🤖 Loading policy from local model: {args.model_path}...")
         policy = nc.policy(
@@ -128,12 +146,14 @@ if __name__ == "__main__":
         )
 
     # Dynamically extract what sensor streams the model expects to see.
-    # Remote endpoints (policy_remote_server) do not expose these attributes, 
+    # Remote endpoints (policy_remote_server) do not expose these attributes,
     # so we catch the AttributeError and fall back to the default Piper embodiment.
     try:
         input_emb, output_emb = get_policy_embodiments(policy)
     except AttributeError:
-        print("\n⚠️  Could not dynamically extract embodiments from remote endpoint. Using default Piper configuration...")
+        print(
+            "\n⚠️  Could not dynamically extract embodiments from remote endpoint. Using default Piper configuration..."
+        )
         input_emb = {
             DataType.JOINT_POSITIONS: {i: f"joint{i+1}" for i in range(6)},
             DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: {0: GRIPPER_NAME},
@@ -153,7 +173,7 @@ if __name__ == "__main__":
     # ---------------------------------------------------------
     # 4. Hardware & Subsystem Bootstrapping
     # ---------------------------------------------------------
-    # Instantiates the shared DataManager, CAN hardware interface, IK solver, 
+    # Instantiates the shared DataManager, CAN hardware interface, IK solver,
     # and base telemetry threads using the parsed YAML config parameters.
     data_manager, robot_controller, ik_solver, active_threads = bootstrap_robot_system(
         config, start_ik=True, start_camera=True
@@ -164,13 +184,13 @@ if __name__ == "__main__":
     # ---------------------------------------------------------
     print("\n🖥️  Starting Viser visualization server...")
     visualizer = RobotVisualizer(str(URDF_PATH))
-    
+
     # Inject UI components using fixed AI policy rates
     visualizer.add_policy_controls(
-        PREDICTION_HORIZON_EXECUTION_RATIO, 
-        POLICY_EXECUTION_RATE, 
-        ROBOT_RATE, 
-        "targeting_time"
+        PREDICTION_HORIZON_EXECUTION_RATIO,
+        POLICY_EXECUTION_RATE,
+        ROBOT_RATE,
+        "targeting_time",
     )
     visualizer.add_toggle_robot_enabled_status_button()
     visualizer.add_homing_controls()
@@ -192,10 +212,19 @@ if __name__ == "__main__":
         lambda: start_policy_execution(data_manager, policy_state)
     )
     visualizer.set_play_policy_callback(
-        lambda: play_policy(data_manager, policy, policy_state, visualizer, input_emb, args.continuous_mode)
+        lambda: play_policy(
+            data_manager,
+            policy,
+            policy_state,
+            visualizer,
+            input_emb,
+            args.continuous_mode,
+        )
     )
     visualizer.set_execution_mode_callback(
-        lambda: policy_state.set_execution_mode(PolicyState.ExecutionMode(visualizer.get_execution_mode()))
+        lambda: policy_state.set_execution_mode(
+            PolicyState.ExecutionMode(visualizer.get_execution_mode())
+        )
     )
 
     # ---------------------------------------------------------
@@ -203,14 +232,23 @@ if __name__ == "__main__":
     # ---------------------------------------------------------
     policy_exec_thread = threading.Thread(
         target=policy_execution_thread,
-        args=(policy, data_manager, policy_state, robot_controller, visualizer, input_emb),
+        args=(
+            policy,
+            data_manager,
+            policy_state,
+            robot_controller,
+            visualizer,
+            input_emb,
+        ),
         daemon=True,
-        name="PolicyExecutionWorker"
+        name="PolicyExecutionWorker",
     )
     policy_exec_thread.start()
     active_threads.append(policy_exec_thread)
 
-    print("\n🚀 System Online! Open http://localhost:8080 in your browser to visualize and run the policy.\n")
+    print(
+        "\n🚀 System Online! Open http://localhost:8080 in your browser to visualize and run the policy.\n"
+    )
 
     # ---------------------------------------------------------
     # 7. Main Daemon Loop
@@ -219,7 +257,7 @@ if __name__ == "__main__":
         # Keep the main thread alive. All heavy lifting is handled via background threads.
         while True:
             time.sleep(1)
-            
+
     except KeyboardInterrupt:
         print("\n👋 Interrupt signal received. Initiating graceful shutdown...")
     except Exception as e:
@@ -230,21 +268,21 @@ if __name__ == "__main__":
     # 8. Graceful Teardown & Cleanup
     # ---------------------------------------------------------
     print("\n🧹 Cleaning up subsystems...")
-    
+
     # Safely sever the connection to the policy backend
     policy.disconnect()
-    
+
     # Broadcast shutdown signal to all worker threads
     data_manager.request_shutdown()
     data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
-    
+
     # Wait for daemon threads to finish their current execution cycles
     for thread in active_threads:
         thread.join(timeout=2.0)
-        
+
     # Relinquish hardware interfaces and network ports
     robot_controller.cleanup()
     visualizer.stop()
     nc.logout()
-    
+
     print("👋 Shutdown complete. Goodbye.")
