@@ -27,6 +27,7 @@ from common.shared_actions import toggle_robot_enabled, move_robot_home
 from common.robot_visualizer import RobotVisualizer
 from common.threads.quest_reader import quest_reader_thread
 from meta_quest_teleop.reader import MetaQuestReader
+from common.policy_helpers import get_policy_embodiments, print_policy_embodiments
 
 # Import the newly extracted policy actions
 from common.policy_actions import (
@@ -52,25 +53,37 @@ if __name__ == "__main__":
     nc.login()
     nc.connect_robot(robot_name=args.robot_name, urdf_path=str(URDF_PATH), overwrite=False)
 
-    input_emb: EmbodimentDescription = {
-        DataType.JOINT_POSITIONS: {i: f"joint{i+1}" for i in range(6)},
-        DataType.PARALLEL_GRIPPER_OPEN_AMOUNTS: {0: GRIPPER_NAME},
-        DataType.RGB_IMAGES: {0: CAMERA_NAMES[0]},
-    }
-    output_emb: EmbodimentDescription = {
-        DataType.JOINT_TARGET_POSITIONS: {i: f"joint{i+1}" for i in range(6)},
-        DataType.PARALLEL_GRIPPER_TARGET_OPEN_AMOUNTS: {0: GRIPPER_NAME},
-    }
-
-    # Load Policy
-    if args.remote_endpoint_name:
-        policy = nc.policy_remote_server(args.remote_endpoint_name)
-    elif args.train_run_name:
-        policy = nc.policy(train_run_name=args.train_run_name, device="cuda", input_embodiment_description=input_emb, output_embodiment_description=output_emb)
+    if args.remote_endpoint_name is not None:
+        print(
+            f"\n🤖 Connecting to remote policy endpoint: {args.remote_endpoint_name}..."
+        )
+        try:
+            policy = nc.policy_remote_server(args.remote_endpoint_name)
+        except nc.EndpointError:
+            print(
+                f"❌ Endpoint '{args.remote_endpoint_name}' not available. "
+                "Please start it from the Neuracore dashboard."
+            )
+            sys.exit(1)
+    elif args.train_run_name is not None:
+        print(f"\n🤖 Loading policy from training run: {args.train_run_name}...")
+        policy = nc.policy(
+            train_run_name=args.train_run_name,
+            device="cuda",
+            robot_name=args.robot_name,
+        )
     else:
-        policy = nc.policy(model_file=args.model_path, device="cuda", input_embodiment_description=input_emb, output_embodiment_description=output_emb)
+        policy = nc.policy(
+            model_file=args.model_path,
+            device="cuda",
+            robot_name=args.robot_name,
+        )
 
     policy_state = PolicyState()
+    
+    input_emb, output_emb = get_policy_embodiments(policy)
+    print_policy_embodiments(input_emb, output_emb)
+
     policy_state.set_execution_mode(PolicyState.ExecutionMode.TARGETING_TIME)
 
     # 2. Bootstrap Core System

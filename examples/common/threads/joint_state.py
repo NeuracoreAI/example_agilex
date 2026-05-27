@@ -53,12 +53,18 @@ def joint_state_thread(
                 if target_joint_angles is not None and data_manager.get_teleop_active():
                     robot_controller.set_target_joint_angles(target_joint_angles)
 
-                if trigger_value is not None and data_manager.get_teleop_active():
-                    target_gripper_open_value = 1.0 - trigger_value
+                if data_manager.get_teleop_active():
+                    target_gripper_open_value = max(0.0, min(1.0, 1.0 - trigger_value))
+                    robot_controller.set_gripper_open_value(target_gripper_open_value)
+                elif gripper_open_value is not None:
+                    target_gripper_open_value = gripper_open_value
+                else:
+                    target_gripper_open_value = None
+
+                if target_gripper_open_value is not None:
                     data_manager.set_target_gripper_open_value(
                         target_gripper_open_value
                     )
-                    robot_controller.set_gripper_open_value(target_gripper_open_value)
 
             # Sleep to maintain streaming rate
             elapsed = time.time() - iteration_start

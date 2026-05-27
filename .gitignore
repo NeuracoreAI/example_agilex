@@ -12,3 +12,5 @@ env/
 venv.bak/
 env.bak/
 logs/
+
+*.zip

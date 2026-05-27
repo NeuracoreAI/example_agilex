@@ -109,11 +109,18 @@ class CameraState:
         # Map from camera name -> latest RGB image
         self.rgb_images: dict[str, np.ndarray] = {}
 
-
-
 class DataManager:
-    """Main state container coordinating all state groups."""
+    """Main state container coordinating all state groups.
+
+    This class manages shared data between threads:
+    - Data collection thread: updates controller data
+    - IK solver thread: reads controller data, updates joint solutions
+    - Main thread: reads everything for visualization
+
+    Uses separate locks for each state group to reduce contention.
+    """
     def __init__(self) -> None:
+        """Initialize DataManager with background callback processing."""
         self._controller_state = ControllerState()
         self._teleop_state = TeleopState()
         self._robot_state = RobotState()
@@ -121,7 +128,13 @@ class DataManager:
         self._camera_state = CameraState()
 
         self._shutdown_event = threading.Event()
-        self._on_change_callback: Callable[[str, dict[str, Any], float], None] | None = None
+
+        # Asynchronous processing elements
+        self._on_change_callback: (
+            Callable[[str, dict[str, Any], float], None] | None
+        ) = None
+        
+        # Maxsize 60 matches ~1 second of video frames buffer if disk spikes
         self._callback_queue: queue.Queue = queue.Queue(maxsize=60)
         
         self._worker_thread = threading.Thread(
@@ -130,8 +143,6 @@ class DataManager:
             daemon=True
         )
         self._worker_thread.start()
-        
-    # ... (Keep the rest of the getter/setter methods like get_rgb_image, etc.) ...
 
     def set_on_change_callback(
         self, on_change_callback: Callable[[str, dict[str, Any], float], None]
