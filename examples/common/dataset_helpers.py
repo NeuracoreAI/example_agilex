@@ -29,12 +29,18 @@ def load_and_sync_dataset(
     )
 
     print("🔁 Synchronizing dataset...")
-    synced_dataset = dataset.synchronize(
-        frequency=frequency,
-        cross_embodiment_union=cross_embodiment_union,
-        prefetch_videos=prefetch_videos,
-        max_prefetch_workers=2 if prefetch_videos else 0
-    )
+    
+    # Dynamically build arguments to avoid passing 0 workers to the ThreadPoolExecutor
+    sync_kwargs = {
+        "frequency": frequency,
+        "cross_embodiment_union": cross_embodiment_union,
+        "prefetch_videos": prefetch_videos
+    }
+    
+    if prefetch_videos:
+        sync_kwargs["max_prefetch_workers"] = 2
+        
+    synced_dataset = dataset.synchronize(**sync_kwargs)
     
     print(f"  ✓ Dataset synchronized: {len(synced_dataset)} episodes")
     return synced_dataset
