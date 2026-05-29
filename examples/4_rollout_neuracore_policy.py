@@ -21,6 +21,7 @@ from neuracore_types import DataType, EmbodimentDescription
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.configs import (
+    ACTION_FILTER_WINDOW_SIZE,
     CAMERA_FRAME_STREAMING_RATE,
     CAMERA_NAMES,
     CONTROLLER_BETA,
@@ -50,6 +51,7 @@ from common.configs import (
     VISUALIZATION_RATE,
 )
 from common.data_manager import DataManager, RobotActivityState
+from common.filters import MovingAverageFilter
 from common.policy_helpers import (
     convert_predictions_to_horizon,
     embodiment_names_ordered,
@@ -344,6 +346,7 @@ def policy_execution_thread(
     visualizer: RobotVisualizer,
     input_embodiment_description: EmbodimentDescription,
     output_gripper_names: list[str] | None,
+    action_filter: MovingAverageFilter,
 ) -> None:
     """Policy execution thread."""
     dt_execution = 1.0 / POLICY_EXECUTION_RATE
@@ -400,6 +403,15 @@ def policy_execution_thread(
                     locked_horizon, execution_index
                 )
                 if current_joint_target_positions_deg is not None:
+                    # Smooth joint targets with a moving-average filter to reduce
+                    # jitter (and discontinuities at horizon boundaries during
+                    # continuous play). Prime from the measured pose on the first
+                    # action so execution ramps in smoothly without an initial jump.
+                    if action_filter.is_empty() and current_joint_angles is not None:
+                        action_filter.prime(current_joint_angles)
+                    current_joint_target_positions_deg = action_filter.update(
+                        current_joint_target_positions_deg
+                    )
                     data_manager.set_target_joint_angles(
                         current_joint_target_positions_deg
                     )
@@ -478,6 +490,10 @@ def policy_execution_thread(
                 end_policy_play(
                     data_manager, policy_state, visualizer, "Policy execution completed"
                 )
+        else:
+            # Not executing a policy: clear the filter so a stale buffer never
+            # yanks the arm when the next execution starts from a new pose.
+            action_filter.reset()
 
         # NOTE: Update visualization less frequently to avoid blocking
         # Throttle visualization updates to ~30Hz to prevent overwhelming Viser server
@@ -827,6 +843,9 @@ if __name__ == "__main__":
         )
     )
 
+    # Moving-average filter to smooth policy output joint targets
+    action_filter = MovingAverageFilter(window_size=ACTION_FILTER_WINDOW_SIZE)
+
     # Register Quest reader button callbacks (after visualizer is created)
     quest_reader.on(
         "button_a_pressed",
@@ -848,6 +867,7 @@ if __name__ == "__main__":
             visualizer,
             input_embodiment_description,
             output_gripper_names,
+            action_filter,
         ),
         daemon=True,
     )
