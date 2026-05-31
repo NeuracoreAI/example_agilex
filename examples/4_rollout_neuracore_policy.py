@@ -23,14 +23,28 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from common.configs import (
     CAMERA_FRAME_STREAMING_RATE,
     CAMERA_NAMES,
+    CONTROLLER_BETA,
+    CONTROLLER_D_CUTOFF,
+    CONTROLLER_DATA_RATE,
+    CONTROLLER_MIN_CUTOFF,
+    DAMPING_COST,
+    FRAME_TASK_GAIN,
+    GRIPPER_FRAME_NAME,
+    IK_SOLVER_RATE,
     JOINT_NAMES,
     JOINT_STATE_STREAMING_RATE,
+    LM_DAMPING,
     MAX_ACTION_ERROR_THRESHOLD,
     MAX_SAFETY_THRESHOLD,
     NEUTRAL_JOINT_ANGLES,
+    ORIENTATION_COST,
     POLICY_EXECUTION_RATE,
+    POSITION_COST,
+    POSTURE_COST_VECTOR,
     PREDICTION_HORIZON_EXECUTION_RATIO,
     ROBOT_RATE,
+    SOLVER_DAMPING_VALUE,
+    SOLVER_NAME,
     TARGETING_POSE_TIME_THRESHOLD,
     URDF_PATH,
     VISUALIZATION_RATE,
@@ -52,6 +66,11 @@ from common.threads.realsense_camera import camera_thread
 
 from piper_controller import PiperController
 
+# Default for Meta Quest teleop. Set to True to enable teleop by default, or
+# pass --use-meta-quest on the command line to force it on for a single run.
+# When disabled, the script runs as a pure policy rollout via Viser.
+USE_META_QUEST = True
+
 
 def toggle_robot_enabled_status(
     data_manager: DataManager,
@@ -64,6 +83,8 @@ def toggle_robot_enabled_status(
         # Disable robot
         data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
         robot_controller.graceful_stop()
+        # Reset teleop state when disabling robot
+        data_manager.set_teleop_state(False, None, None)
         visualizer.update_toggle_robot_enabled_status(False)
         print("✓ 🔴 Robot disabled (Button A)")
     elif robot_activity_state == RobotActivityState.DISABLED:
@@ -80,7 +101,10 @@ def home_robot(data_manager: DataManager, robot_controller: PiperController) -> 
     robot_activity_state = data_manager.get_robot_activity_state()
     if robot_activity_state == RobotActivityState.ENABLED:
         print("🏠 Button B pressed - Moving to home position...")
+        # Set state to HOMING to prevent IK thread from sending robot commands
         data_manager.set_robot_activity_state(RobotActivityState.HOMING)
+        # Disable teleop during homing
+        data_manager.set_teleop_state(False, None, None)
         ok = robot_controller.move_to_home()
         if not ok:
             print("✗ Failed to initiate home move")
@@ -201,6 +225,9 @@ def start_policy_execution(
     # Stop ghost visualization
     policy_state.set_ghost_robot_playing(False)
 
+    # Deactivate teleop
+    data_manager.set_teleop_state(False, None, None)
+
     # Lock policy inputs and start execution
     policy_state.start_policy_execution()
 
@@ -250,6 +277,7 @@ def end_policy_play(
     visualizer.update_play_policy_button_status(False)
     policy_state.end_policy_execution()
     data_manager.set_robot_activity_state(RobotActivityState.ENABLED)
+    data_manager.set_teleop_state(False, None, None)
     visualizer.update_policy_status(policy_status_message)
 
 
@@ -504,6 +532,17 @@ def update_visualization(
         # Play/Stop button is enabled during execution so we can stop if needed
         visualizer.set_play_policy_button_disabled(False)
 
+    elif (
+        robot_activity_state == RobotActivityState.ENABLED
+        and data_manager.get_teleop_active()
+    ):
+        # During teleoperation, make ghost robot show target joint angles
+        visualizer.update_ghost_robot_visibility(True)
+        target_joint_angles = data_manager.get_target_joint_angles()
+        if target_joint_angles is not None:
+            joint_config_rad = np.radians(target_joint_angles)
+            visualizer.update_ghost_robot_pose(joint_config_rad)
+
     elif ghost_robot_playing and prediction_horizon_length > 0:
         # Enable execute policy button
         visualizer.set_start_policy_execution_button_disabled(False)
@@ -558,6 +597,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Piper Robot Test with Neuracore Policy - REAL ROBOT CONTROL"
     )
+    parser.add_argument(
+        "--use-meta-quest",
+        action="store_true",
+        help=(
+            "Enable Meta Quest teleoperation (Quest controller drives the robot "
+            f"via the IK solver). Overrides the USE_META_QUEST={USE_META_QUEST} "
+            "default in this file."
+        ),
+    )
+    parser.add_argument(
+        "--ip-address",
+        type=str,
+        default=None,
+        help=(
+            "IP address of Meta Quest device (optional, defaults to None for "
+            "auto-discovery). Only used when Meta Quest teleop is enabled."
+        ),
+    )
     policy_group = parser.add_mutually_exclusive_group(required=True)
     policy_group.add_argument(
         "--train-run-name",
@@ -585,10 +642,25 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Resolve whether to use Meta Quest teleop: in-code default OR CLI flag.
+    use_meta_quest = USE_META_QUEST or args.use_meta_quest
+
+    # Lazily import Meta Quest / IK dependencies only when teleop is enabled, so
+    # the script can run policy-only on machines without meta_quest_teleop.
+    if use_meta_quest:
+        from common.threads.ik_solver import ik_solver_thread
+        from common.threads.quest_reader import quest_reader_thread
+        from meta_quest_teleop.reader import MetaQuestReader
+
+        from pink_ik_solver import PinkIKSolver
+
     print("=" * 60)
     print("PIPER ROBOT TEST WITH NEURACORE POLICY")
     print("=" * 60)
     print("Thread frequencies:")
+    if use_meta_quest:
+        print(f"  🎮 Quest Controller: {CONTROLLER_DATA_RATE} Hz")
+        print(f"  🧮 IK Solver:        {IK_SOLVER_RATE} Hz")
     print(f"  🤖 Robot Controller: {ROBOT_RATE} Hz")
     print(f"  📸 Camera Frame:     {CAMERA_FRAME_STREAMING_RATE} Hz")
     print(f"  📊 Joint State:      {JOINT_STATE_STREAMING_RATE} Hz")
@@ -650,6 +722,12 @@ if __name__ == "__main__":
 
     # Initialize shared state
     data_manager = DataManager()
+    if use_meta_quest:
+        data_manager.set_controller_filter_params(
+            CONTROLLER_MIN_CUTOFF,
+            CONTROLLER_BETA,
+            CONTROLLER_D_CUTOFF,
+        )
 
     # Initialize robot controller
     print("\n🤖 Initializing Piper robot controller...")
@@ -671,6 +749,52 @@ if __name__ == "__main__":
         target=joint_state_thread, args=(data_manager, robot_controller), daemon=True
     )
     joint_state_thread_obj.start()
+
+    quest_reader = None
+    quest_thread = None
+    ik_thread = None
+    if use_meta_quest:
+        # Initialize Meta Quest reader
+        print("\n🎮 Initializing Meta Quest reader...")
+        quest_reader = MetaQuestReader(ip_address=args.ip_address, port=5555, run=True)
+
+        # Start data collection thread
+        print("\n🎮 Starting quest reader thread...")
+        quest_thread = threading.Thread(
+            target=quest_reader_thread, args=(data_manager, quest_reader), daemon=True
+        )
+        quest_thread.start()
+
+        # set initial configuration to current joint angles
+        current_joint_angles = data_manager.get_current_joint_angles()
+        if current_joint_angles is not None:
+            initial_joint_angles = np.radians(current_joint_angles)
+        else:
+            initial_joint_angles = np.radians(NEUTRAL_JOINT_ANGLES)
+
+        # Create Pink IK solver
+        print("\n🔧 Creating Pink IK solver...")
+        ik_solver = PinkIKSolver(
+            urdf_path=URDF_PATH,
+            end_effector_frame=GRIPPER_FRAME_NAME,
+            solver_name=SOLVER_NAME,
+            position_cost=POSITION_COST,
+            orientation_cost=ORIENTATION_COST,
+            frame_task_gain=FRAME_TASK_GAIN,
+            lm_damping=LM_DAMPING,
+            damping_cost=DAMPING_COST,
+            solver_damping_value=SOLVER_DAMPING_VALUE,
+            integration_time_step=1 / IK_SOLVER_RATE,
+            initial_configuration=initial_joint_angles,
+            posture_cost_vector=np.array(POSTURE_COST_VECTOR),
+        )
+
+        # Start IK solver thread
+        print("\n🧮 Starting IK solver thread...")
+        ik_thread = threading.Thread(
+            target=ik_solver_thread, args=(data_manager, ik_solver), daemon=True
+        )
+        ik_thread.start()
 
     # Start camera thread
     print("\n📷 Starting camera thread...")
@@ -734,6 +858,18 @@ if __name__ == "__main__":
         )
     )
 
+    if use_meta_quest and quest_reader is not None:
+        # Register Quest reader button callbacks (after visualizer is created)
+        quest_reader.on(
+            "button_a_pressed",
+            lambda: toggle_robot_enabled_status(
+                data_manager, robot_controller, visualizer
+            ),
+        )
+        quest_reader.on(
+            "button_b_pressed", lambda: home_robot(data_manager, robot_controller)
+        )
+
     # Start policy execution thread
     print("\n🤖 Starting policy execution thread...")
     policy_execution_thread_obj = threading.Thread(
@@ -752,10 +888,21 @@ if __name__ == "__main__":
     policy_execution_thread_obj.start()
 
     print()
-    print("🚀 Starting policy rollout...")
-    print("🖥️  CONTROLS (Viser):")
-    print("   1. Click 'Enable Robot' button to enable/disable robot")
-    print("   2. Click 'Home Robot' button to send robot home")
+    if use_meta_quest:
+        print("🚀 Starting teleoperation with policy testing...")
+        print("🎮 CONTROLS:")
+        print("   1. Press BUTTON A or Enable Robot button to enable/disable robot")
+        print("   2. You have same control over the robot as in teleoperation.")
+        print("      - Hold RIGHT GRIP to activate teleoperation")
+        print("      - Move controller - robot follows!")
+        print("      - Hold RIGHT TRIGGER to close gripper")
+        print("      - Press BUTTON A or Enable Robot button to enable/disable robot")
+        print("      - Press BUTTON B or Home Robot button to send robot home")
+    else:
+        print("🚀 Starting policy rollout...")
+        print("🖥️  CONTROLS (Viser):")
+        print("   1. Click 'Enable Robot' button to enable/disable robot")
+        print("   2. Click 'Home Robot' button to send robot home")
     print("   3. Click 'Run Policy' button to run policy (without executing)")
     print("   4. Click 'Execute Policy' button to execute prediction horizon")
     print("   5. Click 'Run and Execute Policy' button to run and execute policy")
@@ -783,6 +930,12 @@ if __name__ == "__main__":
     # shutdown threads
     data_manager.request_shutdown()
     data_manager.set_robot_activity_state(RobotActivityState.DISABLED)
+    if quest_thread is not None:
+        quest_thread.join()
+    if quest_reader is not None:
+        quest_reader.stop()
+    if ik_thread is not None:
+        ik_thread.join()
     camera_thread_obj.join()
     robot_controller.cleanup()
 
