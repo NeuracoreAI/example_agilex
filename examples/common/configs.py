@@ -56,7 +56,7 @@ CAMERA_HEIGHT = 480
 
 # # Initial neutral pose for robot (mm and degrees)
 # NEUTRAL_JOINT_ANGLES = [-1.003, 80.167, -51.064, -4.127, 16.548, 2.619]
-NEUTRAL_JOINT_ANGLES = [0.4, 112.3, -101.0, -2.6, 63.2, 18.3]
+NEUTRAL_JOINT_ANGLES = [-9.3, 86.7, -86.6, 1.8, 61.7, -5.1]  # Lemon pick task
 NEUTRAL_END_EFFECTOR_POSE = [455.257, -46.344, 172.213, 176.205, -14.545, 29.621]
 
 # Posture task cost vector (one weight per joint)
@@ -64,10 +64,13 @@ POSTURE_COST_VECTOR = [0.0, 0.0, 0.0, 0.05, 0.0, 0.0]
 
 
 POLICY_EXECUTION_RATE = 20.0  # Hz
-PREDICTION_HORIZON_EXECUTION_RATIO = (
-    1.0  # percentage of the prediction horizon that is executed
-)
-MAX_SAFETY_THRESHOLD = 20.0  # degrees
+
+# Moving-average filter applied to policy output.
+# 1 = no smoothing. Larger = smoother.
+ACTION_FILTER_WINDOW_SIZE = 5
+# Percentage of the prediction horizon to be executed.
+PREDICTION_HORIZON_EXECUTION_RATIO = 1.0
+MAX_SAFETY_THRESHOLD = 180.0  # degrees
 MAX_ACTION_ERROR_THRESHOLD = 3.0  # degrees
 TARGETING_POSE_TIME_THRESHOLD = 1.0  # seconds
 
