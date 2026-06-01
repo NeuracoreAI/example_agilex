@@ -56,7 +56,7 @@ CAMERA_HEIGHT = 480
 
 # # Initial neutral pose for robot (mm and degrees)
 # NEUTRAL_JOINT_ANGLES = [-1.003, 80.167, -51.064, -4.127, 16.548, 2.619]
-NEUTRAL_JOINT_ANGLES = [0.4, 112.3, -101.0, -2.6, 63.2, 18.3]
+NEUTRAL_JOINT_ANGLES = [-9.3, 86.7, -86.6, 1.8, 61.7, -5.1]  # Lemon pick task
 NEUTRAL_END_EFFECTOR_POSE = [455.257, -46.344, 172.213, 176.205, -14.545, 29.621]
 
 # Posture task cost vector (one weight per joint)

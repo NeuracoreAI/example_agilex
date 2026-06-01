@@ -91,7 +91,7 @@ class PiperController:
 
         # Gripper range in degrees (for internal SDK communication)
         self.GRIPPER_DEGREES_MIN = -10.00
-        self.GRIPPER_DEGREES_MAX = 30.00
+        self.GRIPPER_DEGREES_MAX = 80.00
         self.GRIPPER_DEGREES_RANGE = self.GRIPPER_DEGREES_MAX - self.GRIPPER_DEGREES_MIN
 
         # Home gripper value in degrees
@@ -491,7 +491,9 @@ class PiperController:
                     if now - last_reenable_time >= reenable_interval:
                         if not self.piper.EnablePiper():
                             if self.debug_mode:
-                                print("Control loop: EnablePiper re-enable returned False")
+                                print(
+                                    "Control loop: EnablePiper re-enable returned False"
+                                )
                         last_reenable_time = now
 
                     # Get current control mode
