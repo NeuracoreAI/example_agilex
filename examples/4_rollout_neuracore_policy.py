@@ -51,7 +51,7 @@ from common.configs import (
     VISUALIZATION_RATE,
 )
 from common.data_manager import DataManager, RobotActivityState
-from common.filters import MovingAverageFilter
+from common.moving_average_filter import MovingAverageFilter
 from common.policy_helpers import (
     convert_predictions_to_horizon,
     embodiment_names_ordered,

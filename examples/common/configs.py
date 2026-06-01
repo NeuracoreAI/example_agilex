@@ -65,13 +65,11 @@ POSTURE_COST_VECTOR = [0.0, 0.0, 0.0, 0.05, 0.0, 0.0]
 
 POLICY_EXECUTION_RATE = 20.0  # Hz
 
-# Moving-average filter applied to policy output joint targets: number of
-# recent actions to average (1 disables smoothing). Larger = smoother but
-# adds lag at POLICY_EXECUTION_RATE.
+# Moving-average filter applied to policy output.
+# 1 = no smoothing. Larger = smoother.
 ACTION_FILTER_WINDOW_SIZE = 5
-PREDICTION_HORIZON_EXECUTION_RATIO = (
-    1.0  # percentage of the prediction horizon that is executed
-)
+# Percentage of the prediction horizon to be executed.
+PREDICTION_HORIZON_EXECUTION_RATIO = 1.0
 MAX_SAFETY_THRESHOLD = 180.0  # degrees
 MAX_ACTION_ERROR_THRESHOLD = 3.0  # degrees
 TARGETING_POSE_TIME_THRESHOLD = 1.0  # seconds
